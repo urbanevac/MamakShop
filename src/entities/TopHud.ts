@@ -1,0 +1,370 @@
+import Phaser from 'phaser';
+import { BaseEntity } from './BaseEntity';
+import { GameStateStore, TimeOfDayPhase } from '../state/GameState';
+import { GAME_WIDTH } from '../config/constants';
+
+export class TopHud extends BaseEntity {
+  private store: GameStateStore;
+  private unsubscribers: Array<() => void> = [];
+
+  private tierText!: Phaser.GameObjects.Text;
+  private cashText!: Phaser.GameObjects.Text;
+  private dayText!: Phaser.GameObjects.Text;
+  private phaseBadgeBg!: Phaser.GameObjects.Graphics;
+  private phaseText!: Phaser.GameObjects.Text;
+  private dayProgressBarFill!: Phaser.GameObjects.Graphics;
+
+  private repValueText!: Phaser.GameObjects.Text;
+  private repBarFill!: Phaser.GameObjects.Graphics;
+
+  private readonly HUD_X = 14;
+  private readonly HUD_Y = 14;
+  private readonly HUD_WIDTH = GAME_WIDTH - 28; // 362px
+  private readonly HUD_HEIGHT = 112;
+
+  private readonly REP_BAR_X = 112;
+  private readonly REP_BAR_Y = 92;
+  private readonly REP_BAR_WIDTH = 200;
+  private readonly REP_BAR_HEIGHT = 12;
+
+  private readonly onOpenUpgradeModal?: () => void;
+
+  constructor(
+    scene: Phaser.Scene,
+    store: GameStateStore,
+    onOpenUpgradeModal?: () => void
+  ) {
+    super(scene, 0, 0);
+    this.store = store;
+    this.onOpenUpgradeModal = onOpenUpgradeModal;
+
+    this.buildHud();
+    this.bindEvents();
+    this.syncAll();
+  }
+
+  private buildHud(): void {
+    // Main panel background
+    const panel = this.scene.add.graphics();
+    panel.fillStyle(0x271914, 0.96);
+    panel.fillRoundedRect(
+      this.HUD_X,
+      this.HUD_Y,
+      this.HUD_WIDTH,
+      this.HUD_HEIGHT,
+      14
+    );
+    panel.lineStyle(2, 0xd97706, 0.85);
+    panel.strokeRoundedRect(
+      this.HUD_X,
+      this.HUD_Y,
+      this.HUD_WIDTH,
+      this.HUD_HEIGHT,
+      14
+    );
+    this.add(panel);
+
+    // Top row: Tier Title (left) & Day + Phase badge (right)
+    this.tierText = this.scene.add.text(
+      this.HUD_X + 14,
+      this.HUD_Y + 12,
+      'Tier 1: Gerai Tepi Jalan',
+      {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#fbbf24',
+      }
+    );
+    this.add(this.tierText);
+
+    this.phaseBadgeBg = this.scene.add.graphics();
+    this.add(this.phaseBadgeBg);
+
+    this.phaseText = this.scene.add
+      .text(this.HUD_X + this.HUD_WIDTH - 14, this.HUD_Y + 18, '☀️ Morning', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#fef3c7',
+      })
+      .setOrigin(1, 0.5);
+    this.add(this.phaseText);
+
+    // Middle row: Cash (left), UPGRADE KEDAI button (center), Day Counter (right)
+    this.cashText = this.scene.add.text(
+      this.HUD_X + 14,
+      this.HUD_Y + 38,
+      'RM 50.00',
+      {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '21px',
+        fontStyle: 'bold',
+        color: '#34d399',
+      }
+    );
+    this.add(this.cashText);
+
+    // Shop / Upgrade Kedai Button
+    const shopBtn = this.scene.add
+      .rectangle(202, this.HUD_Y + 49, 98, 28, 0xd97706, 1)
+      .setStrokeStyle(1.5, 0xfef08a, 0.95)
+      .setInteractive({ useHandCursor: true });
+    this.add(shopBtn);
+
+    const shopBtnLabel = this.scene.add
+      .text(202, this.HUD_Y + 49, '🏪 UPGRADE', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '10.5px',
+        fontStyle: 'bold',
+        color: '#fffbeb',
+      })
+      .setOrigin(0.5);
+    this.add(shopBtnLabel);
+
+    shopBtn.on('pointerdown', () => {
+      this.scene.tweens.add({
+        targets: [shopBtn, shopBtnLabel],
+        scaleX: 0.94,
+        scaleY: 0.94,
+        duration: 70,
+        yoyo: true,
+      });
+      this.onOpenUpgradeModal?.();
+    });
+
+    this.dayText = this.scene.add
+      .text(
+        this.HUD_X + this.HUD_WIDTH - 14,
+        this.HUD_Y + 42,
+        'DAY 1 (90s)',
+        {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '13px',
+          fontStyle: 'bold',
+          color: '#fde68a',
+        }
+      )
+      .setOrigin(1, 0);
+    this.add(this.dayText);
+
+    // Mini day-progress bar under DAY text
+    const dayBarTrack = this.scene.add.graphics();
+    dayBarTrack.fillStyle(0x140d0b, 1);
+    dayBarTrack.fillRoundedRect(
+      this.HUD_X + this.HUD_WIDTH - 114,
+      this.HUD_Y + 63,
+      100,
+      5,
+      2.5
+    );
+    this.add(dayBarTrack);
+
+    this.dayProgressBarFill = this.scene.add.graphics();
+    this.add(this.dayProgressBarFill);
+
+    // Bottom row: Reputation label, progress bar, and numeric score
+    const repLabel = this.scene.add
+      .text(this.HUD_X + 14, this.REP_BAR_Y + 6, 'REPUTATION', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#d6d3d1',
+      })
+      .setOrigin(0, 0.5);
+    this.add(repLabel);
+
+    const repTrack = this.scene.add.graphics();
+    repTrack.fillStyle(0x140d0b, 1);
+    repTrack.fillRoundedRect(
+      this.REP_BAR_X,
+      this.REP_BAR_Y,
+      this.REP_BAR_WIDTH,
+      this.REP_BAR_HEIGHT,
+      6
+    );
+    repTrack.lineStyle(1, 0x57534e, 0.8);
+    repTrack.strokeRoundedRect(
+      this.REP_BAR_X,
+      this.REP_BAR_Y,
+      this.REP_BAR_WIDTH,
+      this.REP_BAR_HEIGHT,
+      6
+    );
+    this.add(repTrack);
+
+    this.repBarFill = this.scene.add.graphics();
+    this.add(this.repBarFill);
+
+    this.repValueText = this.scene.add
+      .text(
+        this.HUD_X + this.HUD_WIDTH - 14,
+        this.REP_BAR_Y + 6,
+        '70/100',
+        {
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          fontStyle: 'bold',
+          color: '#fef3c7',
+        }
+      )
+      .setOrigin(1, 0.5);
+    this.add(this.repValueText);
+  }
+
+  private bindEvents(): void {
+    this.unsubscribers.push(
+      this.store.on('cashChanged', (cash, delta) => {
+        this.updateCashDisplay(cash);
+        this.spawnFloatingCashFeedback(delta);
+      }),
+      this.store.on('reputationChanged', (rep) => {
+        this.updateReputationDisplay(rep);
+      }),
+      this.store.on('dayChanged', () => {
+        this.syncDayDisplay();
+      }),
+      this.store.on('dayTick', () => {
+        this.syncDayDisplay();
+      }),
+      this.store.on('tierChanged', (tier) => {
+        this.tierText.setText(`Tier ${tier.level}: ${tier.name}`);
+      })
+    );
+  }
+
+  private syncAll(): void {
+    const state = this.store.getState();
+    this.tierText.setText(`Tier ${state.tier.level}: ${state.tier.name}`);
+    this.updateCashDisplay(state.cash);
+    this.updateReputationDisplay(state.reputation);
+    this.syncDayDisplay();
+  }
+
+  private updateCashDisplay(cash: number): void {
+    this.cashText.setText(`RM ${cash.toFixed(2)}`);
+  }
+
+  private spawnFloatingCashFeedback(delta: number): void {
+    if (delta === 0) return;
+    const sign = delta > 0 ? '+' : '-';
+    const color = delta > 0 ? '#34d399' : '#f87171';
+    const floatText = this.scene.add.text(
+      this.cashText.x + this.cashText.width + 8,
+      this.cashText.y + 4,
+      `${sign}RM ${Math.abs(delta).toFixed(2)}`,
+      {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color,
+      }
+    );
+    this.add(floatText);
+
+    this.scene.tweens.add({
+      targets: floatText,
+      y: floatText.y - 16,
+      alpha: 0,
+      duration: 750,
+      ease: 'Cubic.easeOut',
+      onComplete: () => floatText.destroy(),
+    });
+  }
+
+  private updateReputationDisplay(reputation: number): void {
+    const clamped = Math.max(0, Math.min(100, reputation));
+    const ratio = clamped / 100;
+    const fillWidth = Math.max(0, (this.REP_BAR_WIDTH - 2) * ratio);
+
+    let barColor = 0x22c55e; // Green (good)
+    if (clamped < 35) {
+      barColor = 0xef4444; // Red (critical)
+    } else if (clamped < 65) {
+      barColor = 0xf59e0b; // Amber (moderate)
+    }
+
+    this.repBarFill.clear();
+    if (fillWidth > 0) {
+      this.repBarFill.fillStyle(barColor, 1);
+      this.repBarFill.fillRoundedRect(
+        this.REP_BAR_X + 1,
+        this.REP_BAR_Y + 1,
+        fillWidth,
+        this.REP_BAR_HEIGHT - 2,
+        5
+      );
+    }
+
+    this.repValueText.setText(`${clamped}/100`);
+  }
+
+  private syncDayDisplay(): void {
+    const state = this.store.getState();
+    const remainingSec = Math.max(
+      0,
+      Math.ceil(state.dayDurationSeconds - state.dayElapsedSeconds)
+    );
+    this.dayText.setText(`DAY ${state.day} (${remainingSec}s)`);
+
+    // Update phase badge
+    const icon = this.getPhaseIcon(state.phase);
+    this.phaseText.setText(`${icon} ${state.phase}`);
+
+    const badgeWidth = this.phaseText.width + 16;
+    const badgeX = this.HUD_X + this.HUD_WIDTH - 6 - badgeWidth;
+    const badgeY = this.HUD_Y + 8;
+
+    this.phaseBadgeBg.clear();
+    this.phaseBadgeBg.fillStyle(state.isNight ? 0x1e1b4b : 0x78350f, 0.9);
+    this.phaseBadgeBg.fillRoundedRect(badgeX, badgeY, badgeWidth, 20, 6);
+    this.phaseBadgeBg.lineStyle(
+      1,
+      state.isNight ? 0x818cf8 : 0xfbbf24,
+      0.7
+    );
+    this.phaseBadgeBg.strokeRoundedRect(badgeX, badgeY, badgeWidth, 20, 6);
+
+    // Update day progress bar fill
+    const progress = Math.min(
+      1,
+      Math.max(0, state.dayElapsedSeconds / state.dayDurationSeconds)
+    );
+    this.dayProgressBarFill.clear();
+    this.dayProgressBarFill.fillStyle(
+      state.isNight ? 0x818cf8 : 0xfbbf24,
+      1
+    );
+    this.dayProgressBarFill.fillRoundedRect(
+      this.HUD_X + this.HUD_WIDTH - 114,
+      this.HUD_Y + 63,
+      Math.max(2, 100 * progress),
+      5,
+      2.5
+    );
+  }
+
+  private getPhaseIcon(phase: TimeOfDayPhase): string {
+    switch (phase) {
+      case 'Morning':
+        return '🌅';
+      case 'Afternoon':
+        return '☀️';
+      case 'Evening':
+        return '🌇';
+      case 'Night':
+        return '🌙';
+    }
+  }
+
+  public updateEntity(_time: number, delta: number): void {
+    this.store.advanceTime(delta / 1000);
+    this.store.updateStations(delta);
+  }
+
+  public override destroy(fromScene?: boolean): void {
+    this.unsubscribers.forEach((unsub) => unsub());
+    this.unsubscribers = [];
+    super.destroy(fromScene);
+  }
+}
