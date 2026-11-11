@@ -96,9 +96,9 @@ export class PrepStationDock extends BaseEntity {
   private rotiStatusText!: Phaser.GameObjects.Text;
 
   private readonly DOCK_X = 12;
-  private readonly DOCK_Y = 516;
+  private readonly DOCK_Y = 454;
   private readonly DOCK_W = GAME_WIDTH - 24;
-  private readonly DOCK_H = 316;
+  private readonly DOCK_H = 256;
 
   constructor(
     scene: Phaser.Scene,
@@ -160,13 +160,13 @@ export class PrepStationDock extends BaseEntity {
   public getTargetRect(target: StationTarget): ScreenRect {
     switch (target) {
       case 'kettle':
-        return { x: 26, y: 592, w: 156, h: 66 };
+        return { x: 26, y: 525, w: 156, h: 58 };
       case 'cup':
-        return { x: 26, y: 673, w: 156, h: 78 };
+        return { x: 26, y: 592, w: 156, h: 68 };
       case 'dough':
-        return { x: 208, y: 592, w: 156, h: 66 };
+        return { x: 208, y: 525, w: 156, h: 58 };
       case 'griddle':
-        return { x: 208, y: 673, w: 156, h: 78 };
+        return { x: 208, y: 592, w: 156, h: 68 };
     }
   }
 
@@ -228,13 +228,13 @@ export class PrepStationDock extends BaseEntity {
   }
 
   /**
-   * Builds thumb-friendly 1-tap Recipe Pills in a dedicated 44px zone (y = 546..586)
+   * Builds thumb-friendly 1-tap Recipe Pills in a dedicated 40px zone (y = 480..518)
    * with zero overlap against the Kettle or Dough cards below!
    */
   private rebuildRecipePills(): void {
     const unlocked = this.store.getState().unlockedRecipes;
 
-    // 1. Drink Pills (left column center = 104, y = 562)
+    // 1. Drink Pills (left column center = 104, y = 496)
     this.drinkPillsContainer.removeAll(true);
     const drinks = unlocked.filter((id) => getRecipeDef(id).category === 'drink');
     const drinkPillW = drinks.length === 1 ? 156 : 75;
@@ -243,14 +243,14 @@ export class PrepStationDock extends BaseEntity {
       const def = getRecipeDef(id);
       const isSelected = this.selectedDrinkRecipe === id;
       const px = drinks.length === 1 ? 104 : 104 + (idx === 0 ? -40 : 40);
-      const py = this.DOCK_Y + 46; // 562
+      const py = this.DOCK_Y + 42; // 496
 
       const btn = this.scene.add
         .rectangle(
           px,
           py,
           drinkPillW,
-          28,
+          24,
           isSelected ? 0xd97706 : 0x0f172a,
           1
         )
@@ -275,7 +275,7 @@ export class PrepStationDock extends BaseEntity {
       this.drinkPillsContainer.add([btn, txt]);
     });
 
-    // 2. Food Pills (right column center = 286, y = 554..574)
+    // 2. Food Pills (right column center = 286, y = 488..507)
     this.foodPillsContainer.removeAll(true);
     const foods = unlocked.filter((id) => getRecipeDef(id).category === 'food');
 
@@ -284,20 +284,20 @@ export class PrepStationDock extends BaseEntity {
       const isSelected = this.selectedFoodRecipe === id;
 
       let px = 286;
-      let py = this.DOCK_Y + 46; // 562
+      let py = this.DOCK_Y + 42; // 496
       let pillW = 156;
-      let pillH = 28;
+      let pillH = 24;
 
       if (foods.length === 2) {
         pillW = 75;
         px = 286 + (idx === 0 ? -40 : 40);
       } else if (foods.length > 2) {
         pillW = 75;
-        pillH = 20;
+        pillH = 18;
         const col = idx % 2;
         const row = Math.floor(idx / 2);
         px = 286 + (col === 0 ? -40 : 40);
-        py = this.DOCK_Y + 37 + row * 22; // Row 0 = 553, Row 1 = 575 (bottom = 585, well above y=592!)
+        py = this.DOCK_Y + 34 + row * 19; // Row 0 = 488, Row 1 = 507 (bottom = 516, well above y=525!)
       }
 
       const btn = this.scene.add
@@ -334,39 +334,39 @@ export class PrepStationDock extends BaseEntity {
     this.drinkPillsContainer = this.scene.add.container(0, 0);
     this.add(this.drinkPillsContainer);
 
-    // --- Interactive Element A: Kettle Card (Logical center 104, 625 — covers y=592..658) ---
-    this.kettleContainer = this.scene.add.container(leftCenterX, 625);
+    // --- Interactive Element A: Kettle Card (Logical center 104, 554 — covers y=525..583) ---
+    this.kettleContainer = this.scene.add.container(leftCenterX, 554);
     const kettleHitBg = this.scene.add
-      .rectangle(0, 0, 156, 66, 0x293548, 1)
+      .rectangle(0, 0, 156, 58, 0x293548, 1)
       .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     const kettleGfx = this.scene.add.graphics();
     // 3D button top highlight bevel
     kettleGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
-    kettleGfx.lineBetween(-74, -31, 74, -31);
+    kettleGfx.lineBetween(-74, -27, 74, -27);
     // Dedicated left icon well (-70..-12) so spout never touches text on the right!
     kettleGfx.fillStyle(0x0f172a, 0.65);
-    kettleGfx.fillRoundedRect(-70, -25, 58, 50, 8);
+    kettleGfx.fillRoundedRect(-70, -22, 58, 44, 8);
     // Stainless steel tall Mamak tea kettle pot centered at x = -43
     kettleGfx.fillStyle(0xcbd5e1, 1);
-    kettleGfx.fillRoundedRect(-57, -16, 30, 34, 5);
+    kettleGfx.fillRoundedRect(-57, -14, 30, 30, 5);
     kettleGfx.fillStyle(0xf8fafc, 0.45);
-    kettleGfx.fillRect(-53, -13, 5, 28);
+    kettleGfx.fillRect(-53, -11, 5, 24);
     kettleGfx.lineStyle(1.8, 0x475569, 1);
-    kettleGfx.strokeRoundedRect(-57, -16, 30, 34, 5);
+    kettleGfx.strokeRoundedRect(-57, -14, 30, 30, 5);
     // Kettle spout pointing right inside the icon well (stops at x = -16)
     kettleGfx.lineStyle(3.5, 0xe2e8f0, 1);
-    kettleGfx.lineBetween(-27, 4, -17, -10);
+    kettleGfx.lineBetween(-27, 4, -17, -9);
     // Kettle handle on left
     kettleGfx.lineStyle(2.5, 0xfacc15, 1);
-    kettleGfx.strokeRoundedRect(-64, -10, 7, 20, 2);
+    kettleGfx.strokeRoundedRect(-64, -9, 7, 18, 2);
     // Brass lid knob
     kettleGfx.fillStyle(0xf59e0b, 1);
-    kettleGfx.fillCircle(-42, -19, 3.5);
+    kettleGfx.fillCircle(-42, -17, 3.2);
 
     const kettleLabel = this.scene.add
-      .text(32, -11, '1. KETTLE', {
+      .text(32, -10, '1. KETTLE', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -375,13 +375,13 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.kettleBadge = this.scene.add
-      .text(32, 11, 'TAP TO POUR', {
+      .text(32, 10, 'TAP TO POUR', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
         color: '#1c1917',
         backgroundColor: '#facc15',
-        padding: { x: 6, y: 3 },
+        padding: { x: 6, y: 2.5 },
       })
       .setOrigin(0.5);
 
@@ -395,17 +395,17 @@ export class PrepStationDock extends BaseEntity {
     this.tehStreamGfx = this.scene.add.graphics();
     this.add(this.tehStreamGfx);
 
-    // --- Interactive Element B: Tea Cup Card (Logical center 104, 712 — covers y=673..751) ---
-    this.cupContainer = this.scene.add.container(leftCenterX, 712);
+    // --- Interactive Element B: Tea Cup Card (Logical center 104, 626 — covers y=592..660) ---
+    this.cupContainer = this.scene.add.container(leftCenterX, 626);
     const cupHitBg = this.scene.add
-      .rectangle(0, 0, 156, 78, 0x293548, 1)
+      .rectangle(0, 0, 156, 68, 0x293548, 1)
       .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     this.cupVisualGfx = this.scene.add.graphics();
 
     const cupLabel = this.scene.add
-      .text(32, -14, '2. TEA CUP', {
+      .text(32, -12, '2. TEA CUP', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -414,13 +414,13 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.cupBadge = this.scene.add
-      .text(32, 12, 'EMPTY', {
+      .text(32, 11, 'EMPTY', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
         color: '#94a3b8',
         backgroundColor: '#0f172a',
-        padding: { x: 6, y: 3 },
+        padding: { x: 6, y: 2.5 },
       })
       .setOrigin(0.5);
 
@@ -434,16 +434,16 @@ export class PrepStationDock extends BaseEntity {
     // Progress bar & status footer
     const barTrack = this.scene.add.graphics();
     barTrack.fillStyle(0x0f172a, 1);
-    barTrack.fillRoundedRect(26, 764, 156, 12, 6);
+    barTrack.fillRoundedRect(26, 668, 156, 10, 5);
     barTrack.lineStyle(1, 0x64748b, 1);
-    barTrack.strokeRoundedRect(26, 764, 156, 12, 6);
+    barTrack.strokeRoundedRect(26, 668, 156, 10, 5);
     this.add(barTrack);
 
     this.tehProgressFill = this.scene.add.graphics();
     this.add(this.tehProgressFill);
 
     this.tehStatusText = this.scene.add
-      .text(leftCenterX, 794, '1. Tap Kettle to fill (1.5s)', {
+      .text(leftCenterX, 692, '1. Tap Kettle to fill (1.5s)', {
         fontFamily: 'monospace',
         fontSize: '9.5px',
         fontStyle: 'bold',
@@ -495,12 +495,12 @@ export class PrepStationDock extends BaseEntity {
 
     this.scene.tweens.add({
       targets: this.cupContainer,
-      y: 700,
+      y: 616,
       scaleY: 1.07,
       duration: 140,
       yoyo: true,
       onComplete: () => {
-        this.cupContainer.setPosition(104, 712);
+        this.cupContainer.setPosition(104, 626);
         this.cupContainer.setScale(1);
         const plated = this.callbacks.onPlateItem(drinkToPlate);
         if (plated) {
@@ -540,25 +540,25 @@ export class PrepStationDock extends BaseEntity {
 
     // 3D top bevel highlight + left icon well inside Tea Cup card
     this.cupVisualGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
-    this.cupVisualGfx.lineBetween(-74, -37, 74, -37);
+    this.cupVisualGfx.lineBetween(-74, -32, 74, -32);
     this.cupVisualGfx.fillStyle(0x0f172a, 0.65);
-    this.cupVisualGfx.fillRoundedRect(-70, -30, 58, 60, 8);
+    this.cupVisualGfx.fillRoundedRect(-70, -26, 58, 52, 8);
 
     const cx = -42;
     const cy = 2;
     this.cupVisualGfx.lineStyle(2.5, 0xcbd5e1, 1);
-    this.cupVisualGfx.strokeCircle(cx + 12, cy, 6);
+    this.cupVisualGfx.strokeCircle(cx + 12, cy, 5.5);
 
     this.cupVisualGfx.fillStyle(0x1e293b, 1);
-    this.cupVisualGfx.fillRoundedRect(cx - 13, cy - 17, 26, 34, 4);
+    this.cupVisualGfx.fillRoundedRect(cx - 13, cy - 15, 26, 30, 4);
 
     const liquidColor =
       this.selectedDrinkRecipe === 'milo_ais' ? 0x3e2723 : 0xc27838;
 
     if (fillRatio > 0) {
-      const liquidH = Math.max(4, 30 * fillRatio);
+      const liquidH = Math.max(4, 26 * fillRatio);
       this.cupVisualGfx.fillStyle(liquidColor, 1);
-      this.cupVisualGfx.fillRoundedRect(cx - 12, cy + 16 - liquidH, 24, liquidH, 3);
+      this.cupVisualGfx.fillRoundedRect(cx - 12, cy + 14 - liquidH, 24, liquidH, 3);
     }
 
     if (this.tehStage === 'filled' || this.tehStage === 'pulling') {
@@ -566,15 +566,15 @@ export class PrepStationDock extends BaseEntity {
         this.selectedDrinkRecipe === 'milo_ais' ? 0x22c55e : 0xfef3c7,
         1
       );
-      this.cupVisualGfx.fillRoundedRect(cx - 14, cy - 19, 28, 6, 3);
+      this.cupVisualGfx.fillRoundedRect(cx - 14, cy - 17, 28, 5, 3);
       // Warm rising steam lines above full cup
       this.cupVisualGfx.lineStyle(1.5, 0xf8fafc, 0.55);
-      this.cupVisualGfx.lineBetween(cx - 5, cy - 22, cx - 3, cy - 27);
-      this.cupVisualGfx.lineBetween(cx + 4, cy - 22, cx + 6, cy - 27);
+      this.cupVisualGfx.lineBetween(cx - 5, cy - 19, cx - 3, cy - 23);
+      this.cupVisualGfx.lineBetween(cx + 4, cy - 19, cx + 6, cy - 23);
     }
 
     this.cupVisualGfx.lineStyle(2, 0xe2e8f0, 1);
-    this.cupVisualGfx.strokeRoundedRect(cx - 13, cy - 17, 26, 34, 4);
+    this.cupVisualGfx.strokeRoundedRect(cx - 13, cy - 15, 26, 30, 4);
 
     if (this.tehStage === 'idle') {
       this.kettleBadge
@@ -605,15 +605,15 @@ export class PrepStationDock extends BaseEntity {
 
       // Pouring stream connecting kettle spout to cup
       this.tehStreamGfx.lineStyle(4, liquidColor, 0.95);
-      this.tehStreamGfx.lineBetween(62, 650, 62, 695);
+      this.tehStreamGfx.lineBetween(62, 578, 62, 612);
 
       this.tehProgressFill.fillStyle(0x38bdf8, 1);
       this.tehProgressFill.fillRoundedRect(
         26,
-        764,
+        668,
         Math.max(4, 156 * fillRatio),
-        12,
-        6
+        10,
+        5
       );
     } else if (this.tehStage === 'filled' || this.tehStage === 'pulling') {
       this.kettleBadge
@@ -629,7 +629,7 @@ export class PrepStationDock extends BaseEntity {
         .setColor('#4ade80');
 
       this.tehProgressFill.fillStyle(0x22c55e, 1);
-      this.tehProgressFill.fillRoundedRect(26, 764, 156, 12, 6);
+      this.tehProgressFill.fillRoundedRect(26, 668, 156, 10, 5);
     }
   }
 
@@ -643,38 +643,38 @@ export class PrepStationDock extends BaseEntity {
     this.foodPillsContainer = this.scene.add.container(0, 0);
     this.add(this.foodPillsContainer);
 
-    // --- Interactive Element A: Dough / Prep Tray (Logical center 286, 625 — covers y=592..658) ---
-    this.doughContainer = this.scene.add.container(rightCenterX, 625);
+    // --- Interactive Element A: Dough / Prep Tray (Logical center 286, 554 — covers y=525..583) ---
+    this.doughContainer = this.scene.add.container(rightCenterX, 554);
     const doughHitBg = this.scene.add
-      .rectangle(0, 0, 156, 66, 0x293548, 1)
+      .rectangle(0, 0, 156, 58, 0x293548, 1)
       .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     const doughGfx = this.scene.add.graphics();
     // 3D top bevel highlight
     doughGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
-    doughGfx.lineBetween(-74, -31, 74, -31);
+    doughGfx.lineBetween(-74, -27, 74, -27);
     // Dedicated left icon well (-70..-12) so dough tray never touches "1. DOUGH / PREP" text!
     doughGfx.fillStyle(0x0f172a, 0.65);
-    doughGfx.fillRoundedRect(-70, -25, 58, 50, 8);
+    doughGfx.fillRoundedRect(-70, -22, 58, 44, 8);
     // Stainless steel dough tray inside left well (-65..-17)
     doughGfx.fillStyle(0x94a3b8, 1);
-    doughGfx.fillRoundedRect(-65, -17, 48, 34, 5);
+    doughGfx.fillRoundedRect(-65, -15, 48, 30, 5);
     doughGfx.lineStyle(1.4, 0xe2e8f0, 0.9);
-    doughGfx.strokeRoundedRect(-65, -17, 48, 34, 5);
+    doughGfx.strokeRoundedRect(-65, -15, 48, 30, 5);
 
     // 3 glossy oiled dough balls inside tray
     doughGfx.fillStyle(0xfef3c7, 1);
-    doughGfx.fillCircle(-49, -5, 7);
-    doughGfx.fillCircle(-33, -5, 7);
-    doughGfx.fillCircle(-41, 6, 7);
+    doughGfx.fillCircle(-49, -4, 6.5);
+    doughGfx.fillCircle(-33, -4, 6.5);
+    doughGfx.fillCircle(-41, 6, 6.5);
     doughGfx.lineStyle(1, 0xd97706, 0.85);
-    doughGfx.strokeCircle(-49, -5, 7);
-    doughGfx.strokeCircle(-33, -5, 7);
-    doughGfx.strokeCircle(-41, 6, 7);
+    doughGfx.strokeCircle(-49, -4, 6.5);
+    doughGfx.strokeCircle(-33, -4, 6.5);
+    doughGfx.strokeCircle(-41, 6, 6.5);
 
     const doughLabel = this.scene.add
-      .text(32, -11, '1. DOUGH / PREP', {
+      .text(32, -10, '1. DOUGH / PREP', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -683,13 +683,13 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.doughBadge = this.scene.add
-      .text(32, 11, 'TAP DOUGH', {
+      .text(32, 10, 'TAP DOUGH', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
         color: '#1c1917',
         backgroundColor: '#facc15',
-        padding: { x: 6, y: 3 },
+        padding: { x: 6, y: 2.5 },
       })
       .setOrigin(0.5);
 
@@ -700,17 +700,17 @@ export class PrepStationDock extends BaseEntity {
       this.handleDoughTap();
     });
 
-    // --- Interactive Element B: Griddle Slots (Logical center y = 712) ---
+    // --- Interactive Element B: Griddle Slots (Logical center y = 626) ---
     for (let i = 0; i < 2; i++) {
-      const slotContainer = this.scene.add.container(rightCenterX, 712);
+      const slotContainer = this.scene.add.container(rightCenterX, 626);
       const hitBg = this.scene.add
-        .rectangle(0, 0, 156, 78, 0x293548, 1)
+        .rectangle(0, 0, 156, 68, 0x293548, 1)
         .setStrokeStyle(1.5, 0x94a3b8, 0.95)
         .setInteractive({ useHandCursor: true });
 
       const gfx = this.scene.add.graphics();
       const badge = this.scene.add
-        .text(0, 22, 'EMPTY', {
+        .text(0, 19, 'EMPTY', {
           fontFamily: 'system-ui, -apple-system, sans-serif',
           fontSize: '8.5px',
           fontStyle: 'bold',
@@ -737,7 +737,7 @@ export class PrepStationDock extends BaseEntity {
     }
 
     this.rotiStatusText = this.scene.add
-      .text(rightCenterX, 794, '1. Tap Dough → Griddle', {
+      .text(rightCenterX, 692, '1. Tap Dough → Griddle', {
         fontFamily: 'monospace',
         fontSize: '9.5px',
         fontStyle: 'bold',
@@ -904,30 +904,30 @@ export class PrepStationDock extends BaseEntity {
       const cardW = cap === 1 ? 156 : 75;
       const cardX =
         cap === 1 ? rightCenterX : rightCenterX + (i === 0 ? -40 : 40);
-      container.setPosition(cardX, 712);
-      hitBg.setSize(cardW, 78);
+      container.setPosition(cardX, 626);
+      hitBg.setSize(cardW, 68);
 
       gfx.clear();
       bar.clear();
 
       // 3D top bevel highlight
       gfx.lineStyle(1.5, 0xe2e8f0, 0.35);
-      gfx.lineBetween(-cardW / 2 + 4, -37, cardW / 2 - 4, -37);
+      gfx.lineBetween(-cardW / 2 + 4, -32, cardW / 2 - 4, -32);
 
       const panX = cap === 1 ? -40 : 0;
-      const panY = cap === 1 ? 0 : -13;
-      const panR = cap === 1 ? 24 : 18.5;
+      const panY = cap === 1 ? -1 : -11;
+      const panR = cap === 1 ? 22 : 17;
 
       gfx.fillStyle(0x090d16, 1);
       gfx.fillCircle(panX, panY, panR);
       gfx.lineStyle(2, 0x64748b, 1);
       gfx.strokeCircle(panX, panY, panR);
 
-      badge.setPosition(cap === 1 ? 30 : 0, cap === 1 ? 0 : 18);
+      badge.setPosition(cap === 1 ? 30 : 0, cap === 1 ? -1 : 15);
 
       const barW = cardW - 14;
       const barX = -barW / 2;
-      const barY = 30;
+      const barY = 25;
       bar.fillStyle(0x0f172a, 1);
       bar.fillRoundedRect(barX, barY, barW, 6, 3);
 

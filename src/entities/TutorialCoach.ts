@@ -52,7 +52,7 @@ interface StepDef {
 }
 
 /** Customers + serving tray band (between HUD and Prep Dock). */
-const PLAY_REGION: ScreenRect = { x: 0, y: 176, w: GAME_WIDTH, h: 336 };
+const PLAY_REGION: ScreenRect = { x: 0, y: 156, w: GAME_WIDTH, h: 294 };
 const HOLE_PAD = 6;
 
 /**

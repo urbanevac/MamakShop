@@ -19,14 +19,14 @@ export class TopHud extends BaseEntity {
   private repBarFill!: Phaser.GameObjects.Graphics;
 
   private readonly HUD_X = 14;
-  private readonly HUD_Y = 14;
+  private readonly HUD_Y = 10;
   private readonly HUD_WIDTH = GAME_WIDTH - 28; // 362px
-  private readonly HUD_HEIGHT = 112;
+  private readonly HUD_HEIGHT = 100;
 
   private readonly REP_BAR_X = 112;
-  private readonly REP_BAR_Y = 92;
+  private readonly REP_BAR_Y = 82;
   private readonly REP_BAR_WIDTH = 200;
-  private readonly REP_BAR_HEIGHT = 12;
+  private readonly REP_BAR_HEIGHT = 11;
 
   private readonly onOpenUpgradeModal?: () => void;
   private readonly onPause?: () => void;
@@ -49,7 +49,7 @@ export class TopHud extends BaseEntity {
 
   /** World-space bounds of the pause button (also used by the tutorial spotlight). */
   public getPauseButtonRect(): { x: number; y: number; w: number; h: number } {
-    return { x: 240, y: this.HUD_Y + 35, w: 34, h: 28 };
+    return { x: 240, y: this.HUD_Y + 32, w: 34, h: 26 };
   }
 
   private buildHud(): void {
@@ -114,11 +114,11 @@ export class TopHud extends BaseEntity {
 
     this.cashText = this.scene.add.text(
       this.HUD_X + 14,
-      this.HUD_Y + 38,
+      this.HUD_Y + 34,
       'RM 50.00',
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '21px',
+        fontSize: '20px',
         fontStyle: 'bold',
         color: '#34d399',
       }
@@ -127,13 +127,13 @@ export class TopHud extends BaseEntity {
 
     // Shop / Upgrade Kedai Button
     const shopBtn = this.scene.add
-      .rectangle(192, this.HUD_Y + 49, 84, 28, 0xd97706, 1)
+      .rectangle(192, this.HUD_Y + 45, 84, 26, 0xd97706, 1)
       .setStrokeStyle(1.5, 0xfef08a, 0.95)
       .setInteractive({ useHandCursor: true });
     this.add(shopBtn);
 
     const shopBtnLabel = this.scene.add
-      .text(192, this.HUD_Y + 49, '🏪 UPGRADE', {
+      .text(192, this.HUD_Y + 45, '🏪 UPGRADE', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -190,11 +190,11 @@ export class TopHud extends BaseEntity {
     this.dayText = this.scene.add
       .text(
         this.HUD_X + this.HUD_WIDTH - 14,
-        this.HUD_Y + 42,
+        this.HUD_Y + 38,
         'DAY 1 (90s)',
         {
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          fontSize: '13px',
+          fontSize: '12.5px',
           fontStyle: 'bold',
           color: '#fde68a',
         }
@@ -205,9 +205,9 @@ export class TopHud extends BaseEntity {
     const dayBarTrack = this.scene.add.graphics();
     dayBarTrack.fillStyle(0x140d0b, 1);
     dayBarTrack.fillRoundedRect(
-      this.HUD_X + this.HUD_WIDTH - 114,
-      this.HUD_Y + 63,
-      100,
+      this.HUD_X + this.HUD_WIDTH - 94,
+      this.HUD_Y + 57,
+      80,
       5,
       2.5
     );
@@ -398,9 +398,9 @@ export class TopHud extends BaseEntity {
       1
     );
     this.dayProgressBarFill.fillRoundedRect(
-      this.HUD_X + this.HUD_WIDTH - 114,
-      this.HUD_Y + 63,
-      Math.max(2, 100 * progress),
+      this.HUD_X + this.HUD_WIDTH - 94,
+      this.HUD_Y + 57,
+      Math.max(2, 80 * progress),
       5,
       2.5
     );

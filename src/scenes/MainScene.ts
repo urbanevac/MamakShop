@@ -19,25 +19,25 @@ interface SeatPosition {
 }
 
 const TIER_1_SEATS: SeatPosition[] = [
-  { seatIndex: 0, x: 112, y: 344, spawnX: -60 },
-  { seatIndex: 1, x: 278, y: 344, spawnX: GAME_WIDTH + 60 },
+  { seatIndex: 0, x: 112, y: 304, spawnX: -60 },
+  { seatIndex: 1, x: 278, y: 304, spawnX: GAME_WIDTH + 60 },
 ];
 
 const TIER_2_SEATS: SeatPosition[] = [
-  { seatIndex: 0, x: 52, y: 348, spawnX: -60 },
-  { seatIndex: 1, x: 147, y: 348, spawnX: -60 },
-  { seatIndex: 2, x: 243, y: 348, spawnX: GAME_WIDTH + 60 },
-  { seatIndex: 3, x: 338, y: 348, spawnX: GAME_WIDTH + 60 },
+  { seatIndex: 0, x: 52, y: 308, spawnX: -60 },
+  { seatIndex: 1, x: 147, y: 308, spawnX: -60 },
+  { seatIndex: 2, x: 243, y: 308, spawnX: GAME_WIDTH + 60 },
+  { seatIndex: 3, x: 338, y: 308, spawnX: GAME_WIDTH + 60 },
 ];
 
 // 3 Serving Tray Slots + Trash Bin on the right edge (x = 342)
 const SERVING_TRAY_SLOTS: Array<{ x: number; y: number }> = [
-  { x: 64, y: 458 },
-  { x: 158, y: 458 },
-  { x: 252, y: 458 },
+  { x: 64, y: 406 },
+  { x: 158, y: 406 },
+  { x: 252, y: 406 },
 ];
 
-const TRASH_BIN_POS = { x: 342, y: 458 };
+const TRASH_BIN_POS = { x: 342, y: 406 };
 
 export class MainScene extends Phaser.Scene {
   private envContainer!: Phaser.GameObjects.Container;
@@ -313,7 +313,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Warm tungsten Mamak bulb string lights hanging under the awning
-    const lightY = 172;
+    const lightY = 154;
     env.lineStyle(1.2, 0x78350f, 0.7);
     env.lineBetween(18, lightY - 4, GAME_WIDTH - 18, lightY - 4);
     for (let i = 0; i < 6; i++) {
@@ -325,8 +325,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Stainless Steel Silver Serving Tray Counter (3 plated slots + 1 Trash Bin)
-    const counterY = 396;
-    const counterH = 110;
+    const counterY = 350;
+    const counterH = 96;
 
     env.fillStyle(0x090d16, 0.55);
     env.fillRect(10, counterY + 6, GAME_WIDTH - 20, counterH);
@@ -335,7 +335,7 @@ export class MainScene extends Phaser.Scene {
     env.fillRoundedRect(10, counterY, GAME_WIDTH - 20, counterH, 8);
 
     env.fillStyle(0xcbd5e1, 1);
-    env.fillRoundedRect(10, counterY, GAME_WIDTH - 20, 28, {
+    env.fillRoundedRect(10, counterY, GAME_WIDTH - 20, 24, {
       tl: 8,
       tr: 8,
       bl: 0,
@@ -346,13 +346,13 @@ export class MainScene extends Phaser.Scene {
     env.lineBetween(14, counterY + 4, GAME_WIDTH - 14, counterY + 4);
     env.lineStyle(2, 0x475569, 1);
     env.strokeRoundedRect(10, counterY, GAME_WIDTH - 20, counterH, 8);
-    env.lineBetween(10, counterY + 28, GAME_WIDTH - 10, counterY + 28);
+    env.lineBetween(10, counterY + 24, GAME_WIDTH - 10, counterY + 24);
 
     SERVING_TRAY_SLOTS.forEach((pos, idx) => {
       env.fillStyle(0x64748b, 0.65);
-      env.fillRoundedRect(pos.x - 43, pos.y - 30, 86, 60, 10);
+      env.fillRoundedRect(pos.x - 43, pos.y - 27, 86, 54, 10);
       env.lineStyle(1.5, 0xe2e8f0, 0.75);
-      env.strokeRoundedRect(pos.x - 43, pos.y - 30, 86, 60, 10);
+      env.strokeRoundedRect(pos.x - 43, pos.y - 27, 86, 54, 10);
 
       const slotTxt = this.add
         .text(pos.x, pos.y, `TRAY ${idx + 1}`, {
@@ -366,20 +366,20 @@ export class MainScene extends Phaser.Scene {
       this.envContainer.add(slotTxt);
     });
 
-    // --- Trash / Discard Bin on Right Side of Counter (Logical 342, 458) ---
+    // --- Trash / Discard Bin on Right Side of Counter (Logical 342, 406) ---
     this.trashBinBg = this.add
-      .rectangle(TRASH_BIN_POS.x, TRASH_BIN_POS.y, 64, 60, 0x450a0a, 0.9)
+      .rectangle(TRASH_BIN_POS.x, TRASH_BIN_POS.y, 64, 54, 0x450a0a, 0.9)
       .setStrokeStyle(1.5, 0xf87171, 0.9)
       .setInteractive({ useHandCursor: true });
     this.envContainer.add(this.trashBinBg);
 
     const trashIcon = this.add
       .text(TRASH_BIN_POS.x, TRASH_BIN_POS.y - 8, '🗑️', {
-        fontSize: '18px',
+        fontSize: '17px',
       })
       .setOrigin(0.5);
     const trashLabel = this.add
-      .text(TRASH_BIN_POS.x, TRASH_BIN_POS.y + 15, 'DISCARD\n(-50% RM)', {
+      .text(TRASH_BIN_POS.x, TRASH_BIN_POS.y + 13, 'DISCARD\n(-50% RM)', {
         fontFamily: 'monospace',
         fontSize: '8px',
         fontStyle: 'bold',
@@ -409,7 +409,7 @@ export class MainScene extends Phaser.Scene {
     this.trayHeaderText = this.add
       .text(
         GAME_WIDTH / 2,
-        counterY + 14,
+        counterY + 12,
         `SERVING TRAY (${count}/3 PLATED) • DRAG TO SERVE OR 🗑️`,
         {
           fontFamily: 'monospace',
@@ -430,17 +430,17 @@ export class MainScene extends Phaser.Scene {
     env.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     env.fillStyle(0x1c1917, 1);
-    env.fillRect(0, 320, GAME_WIDTH, GAME_HEIGHT - 320);
+    env.fillRect(0, 282, GAME_WIDTH, GAME_HEIGHT - 282);
     env.fillStyle(0x44403c, 1);
-    env.fillRect(0, 314, GAME_WIDTH, 8);
+    env.fillRect(0, 276, GAME_WIDTH, 8);
 
-    const awningY = 132;
+    const awningY = 116;
     const stripeCount = 9;
     const stripeW = (GAME_WIDTH - 16) / stripeCount;
     for (let i = 0; i < stripeCount; i++) {
       const isYellow = i % 2 === 0;
       env.fillStyle(isYellow ? 0xfacc15 : 0xd97706, 1);
-      env.fillRoundedRect(8 + i * stripeW, awningY, stripeW + 1, 30, {
+      env.fillRoundedRect(8 + i * stripeW, awningY, stripeW + 1, 28, {
         tl: 0,
         tr: 0,
         bl: 8,
@@ -448,15 +448,15 @@ export class MainScene extends Phaser.Scene {
       });
     }
     env.lineStyle(2, 0x78350f, 0.9);
-    env.strokeRect(8, awningY, GAME_WIDTH - 16, 28);
+    env.strokeRect(8, awningY, GAME_WIDTH - 16, 26);
 
     env.fillStyle(0xfef08a, 1);
-    env.fillRoundedRect(55, awningY + 22, GAME_WIDTH - 110, 22, 6);
+    env.fillRoundedRect(55, awningY + 20, GAME_WIDTH - 110, 20, 6);
     env.lineStyle(2, 0xb45309, 1);
-    env.strokeRoundedRect(55, awningY + 22, GAME_WIDTH - 110, 22, 6);
+    env.strokeRoundedRect(55, awningY + 20, GAME_WIDTH - 110, 20, 6);
 
     const banner = this.add
-      .text(GAME_WIDTH / 2, awningY + 33, '★ GERAI MAMAK TEPI JALAN ★', {
+      .text(GAME_WIDTH / 2, awningY + 30, '★ GERAI MAMAK TEPI JALAN ★', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -475,27 +475,27 @@ export class MainScene extends Phaser.Scene {
     env.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     env.fillStyle(0x5c3a21, 1);
-    env.fillRect(14, 150, 28, 175);
+    env.fillRect(14, 130, 28, 152);
     env.fillStyle(0x14532d, 0.95);
-    env.fillCircle(60, 155, 58);
-    env.fillCircle(140, 145, 50);
-    env.fillCircle(250, 145, 50);
-    env.fillCircle(335, 155, 58);
+    env.fillCircle(60, 135, 58);
+    env.fillCircle(140, 125, 50);
+    env.fillCircle(250, 125, 50);
+    env.fillCircle(335, 135, 58);
     env.fillStyle(0x166534, 0.9);
-    env.fillCircle(95, 150, 44);
-    env.fillCircle(295, 150, 44);
+    env.fillCircle(95, 130, 44);
+    env.fillCircle(295, 130, 44);
 
     env.fillStyle(0x27272a, 1);
-    env.fillRect(0, 320, GAME_WIDTH, GAME_HEIGHT - 320);
+    env.fillRect(0, 282, GAME_WIDTH, GAME_HEIGHT - 282);
     env.fillStyle(0x22c55e, 0.45);
-    env.fillRect(0, 314, GAME_WIDTH, 6);
+    env.fillRect(0, 276, GAME_WIDTH, 6);
 
-    const awningY = 132;
+    const awningY = 116;
     const stripeCount = 9;
     const stripeW = (GAME_WIDTH - 16) / stripeCount;
     for (let i = 0; i < stripeCount; i++) {
       env.fillStyle(i % 2 === 0 ? 0x0284c7 : 0xf8fafc, 1);
-      env.fillRoundedRect(8 + i * stripeW, awningY, stripeW + 1, 28, {
+      env.fillRoundedRect(8 + i * stripeW, awningY, stripeW + 1, 26, {
         tl: 0,
         tr: 0,
         bl: 8,
@@ -504,12 +504,12 @@ export class MainScene extends Phaser.Scene {
     }
 
     env.fillStyle(0xdcfce7, 1);
-    env.fillRoundedRect(45, awningY + 20, GAME_WIDTH - 90, 22, 6);
+    env.fillRoundedRect(45, awningY + 18, GAME_WIDTH - 90, 20, 6);
     env.lineStyle(2, 0x15803d, 1);
-    env.strokeRoundedRect(45, awningY + 20, GAME_WIDTH - 90, 22, 6);
+    env.strokeRoundedRect(45, awningY + 18, GAME_WIDTH - 90, 20, 6);
 
     const banner = this.add
-      .text(GAME_WIDTH / 2, awningY + 31, '🌳 KEDAI MAMAK BAWAH POKOK 🌳', {
+      .text(GAME_WIDTH / 2, awningY + 28, '🌳 KEDAI MAMAK BAWAH POKOK 🌳', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -528,31 +528,31 @@ export class MainScene extends Phaser.Scene {
     env.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     env.fillStyle(0xfef9c3, 0.14);
-    env.fillRect(10, 145, GAME_WIDTH - 20, 172);
+    env.fillRect(10, 128, GAME_WIDTH - 20, 152);
     env.fillStyle(0xfacc15, 0.22);
-    env.fillRect(12, 145, 16, 172);
-    env.fillRect(GAME_WIDTH - 28, 145, 16, 172);
+    env.fillRect(12, 128, 16, 152);
+    env.fillRect(GAME_WIDTH - 28, 128, 16, 152);
 
-    const bannerY = 178;
+    const bannerY = 158;
     env.lineStyle(2, 0xfef08a, 0.9);
     env.lineBetween(16, bannerY, GAME_WIDTH - 16, bannerY);
     const flagColors = [0xef4444, 0xfacc15, 0x22c55e, 0x3b82f6, 0xa855f7, 0xf97316];
     for (let i = 0; i < 10; i++) {
       const fx = 24 + i * 35;
       env.fillStyle(flagColors[i % flagColors.length], 1);
-      env.fillTriangle(fx, bannerY, fx + 22, bannerY, fx + 11, bannerY + 20);
+      env.fillTriangle(fx, bannerY, fx + 22, bannerY, fx + 11, bannerY + 18);
     }
 
     env.fillStyle(0x0f172a, 1);
-    env.fillRoundedRect(GAME_WIDTH / 2 - 48, 186, 96, 36, 4);
+    env.fillRoundedRect(GAME_WIDTH / 2 - 48, 164, 96, 32, 4);
     env.fillStyle(0x16a34a, 1);
-    env.fillRect(GAME_WIDTH / 2 - 44, 190, 88, 28);
+    env.fillRect(GAME_WIDTH / 2 - 44, 168, 88, 24);
     env.lineStyle(1, 0xffffff, 0.8);
-    env.strokeRect(GAME_WIDTH / 2 - 40, 193, 80, 22);
-    env.strokeCircle(GAME_WIDTH / 2, 204, 6);
+    env.strokeRect(GAME_WIDTH / 2 - 40, 171, 80, 18);
+    env.strokeCircle(GAME_WIDTH / 2, 180, 5);
 
     const tvLabel = this.add
-      .text(GAME_WIDTH / 2, 204, '⚽ LIVE 2-1', {
+      .text(GAME_WIDTH / 2, 180, '⚽ LIVE 2-1', {
         fontFamily: 'monospace',
         fontSize: '9px',
         fontStyle: 'bold',
@@ -561,16 +561,16 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.envContainer.add(tvLabel);
 
-    const awningY = 132;
+    const awningY = 116;
     env.fillStyle(0xdc2626, 1);
-    env.fillRoundedRect(10, awningY, GAME_WIDTH - 20, 26, 6);
+    env.fillRoundedRect(10, awningY, GAME_WIDTH - 20, 24, 6);
     env.fillStyle(0xfef08a, 1);
-    env.fillRoundedRect(32, awningY + 18, GAME_WIDTH - 64, 24, 6);
+    env.fillRoundedRect(32, awningY + 16, GAME_WIDTH - 64, 22, 6);
     env.lineStyle(2, 0xfacc15, 1);
-    env.strokeRoundedRect(32, awningY + 18, GAME_WIDTH - 64, 24, 6);
+    env.strokeRoundedRect(32, awningY + 16, GAME_WIDTH - 64, 22, 6);
 
     const banner = this.add
-      .text(GAME_WIDTH / 2, awningY + 30, '🏆 RESTORAN CORNER LOT MAMAK 24 JAM 🏆', {
+      .text(GAME_WIDTH / 2, awningY + 27, '🏆 RESTORAN CORNER LOT MAMAK 24 JAM 🏆', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '10.5px',
         fontStyle: 'bold',
@@ -580,9 +580,9 @@ export class MainScene extends Phaser.Scene {
     this.envContainer.add(banner);
 
     env.fillStyle(0x334155, 1);
-    env.fillRect(0, 320, GAME_WIDTH, GAME_HEIGHT - 320);
+    env.fillRect(0, 282, GAME_WIDTH, GAME_HEIGHT - 282);
     env.fillStyle(0xfacc15, 0.7);
-    env.fillRect(0, 314, GAME_WIDTH, 6);
+    env.fillRect(0, 276, GAME_WIDTH, 6);
 
     TIER_2_SEATS.forEach((seat) => {
       this.drawPlasticTableAndStool(env, seat.x, seat.y + 20, 0x38bdf8);

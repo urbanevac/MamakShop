@@ -50,9 +50,9 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(backdrop);
 
     const modalX = 16;
-    const modalY = 48;
+    const modalY = 18;
     const modalW = GAME_WIDTH - 32; // 358
-    const modalH = 748;
+    const modalH = 684;
 
     const panel = this.scene.add.graphics();
     panel.fillStyle(0x1e293b, 0.99);
@@ -62,7 +62,7 @@ export class UpgradeKedaiModal extends BaseEntity {
 
     // Header banner
     panel.fillStyle(0xfacc15, 1);
-    panel.fillRoundedRect(modalX + 2, modalY + 2, modalW - 4, 44, {
+    panel.fillRoundedRect(modalX + 2, modalY + 2, modalW - 4, 40, {
       tl: 14,
       tr: 14,
       bl: 0,
@@ -71,9 +71,9 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(panel);
 
     const headerTitle = this.scene.add
-      .text(GAME_WIDTH / 2, modalY + 24, '🏪 UPGRADE KEDAI MAMAK', {
+      .text(GAME_WIDTH / 2, modalY + 22, '🏪 UPGRADE KEDAI MAMAK', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '16px',
+        fontSize: '15.5px',
         fontStyle: 'bold',
         color: '#1c1917',
       })
@@ -81,9 +81,9 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(headerTitle);
 
     this.subtitleText = this.scene.add
-      .text(GAME_WIDTH / 2, modalY + 62, 'Expand your stall & unlock new menu items!', {
+      .text(GAME_WIDTH / 2, modalY + 55, 'Expand your stall & unlock new menu items!', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '11.5px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#fde68a',
       })
@@ -91,9 +91,9 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(this.subtitleText);
 
     this.cashDisplay = this.scene.add
-      .text(GAME_WIDTH / 2, modalY + 84, 'Available Cash: RM 50.00', {
+      .text(GAME_WIDTH / 2, modalY + 75, 'Available Cash: RM 50.00', {
         fontFamily: 'monospace',
-        fontSize: '13.5px',
+        fontSize: '13px',
         fontStyle: 'bold',
         color: '#34d399',
       })
@@ -102,9 +102,9 @@ export class UpgradeKedaiModal extends BaseEntity {
 
     // --- Shift Receipt Summary Card ---
     const receiptX = modalX + 14;
-    const receiptY = modalY + 104;
+    const receiptY = modalY + 92;
     const receiptW = modalW - 28;
-    const receiptH = 74;
+    const receiptH = 66;
 
     const receiptBg = this.scene.add.graphics();
     receiptBg.fillStyle(0x0f172a, 0.96);
@@ -114,12 +114,12 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(receiptBg);
 
     this.receiptTitleText = this.scene.add.text(
-      receiptX + 12,
-      receiptY + 8,
+      receiptX + 10,
+      receiptY + 7,
       '🧾 SHIFT RECEIPT (DAY 1 IN PROGRESS)',
       {
         fontFamily: 'monospace',
-        fontSize: '10.5px',
+        fontSize: '10px',
         fontStyle: 'bold',
         color: '#fbbf24',
       }
@@ -127,33 +127,33 @@ export class UpgradeKedaiModal extends BaseEntity {
     this.add(this.receiptTitleText);
 
     this.receiptStatsText = this.scene.add.text(
-      receiptX + 12,
-      receiptY + 28,
+      receiptX + 10,
+      receiptY + 25,
       '',
       {
         fontFamily: 'monospace',
-        fontSize: '10.5px',
+        fontSize: '9.5px',
         color: '#e2e8f0',
-        lineSpacing: 5,
+        lineSpacing: 4,
       }
     );
     this.add(this.receiptStatsText);
 
     // --- Upgrade Card 1: "Kedai Bawah Pokok" (RM 300) ---
-    this.buildUpgradeCard1(modalX + 14, modalY + 188, modalW - 28, 212);
+    this.buildUpgradeCard1(modalX + 14, modalY + 168, modalW - 28, 194);
 
     // --- Upgrade Card 2: "Corner Lot Mamak" (RM 1,200) ---
-    this.buildUpgradeCard2(modalX + 14, modalY + 412, modalW - 28, 212);
+    this.buildUpgradeCard2(modalX + 14, modalY + 372, modalW - 28, 194);
 
     // --- Footer Buttons: +RM 500 Dev Grant, Reset Save, and Continue Button ---
     const grantBtn = this.scene.add
-      .rectangle(108, modalY + 650, 152, 30, 0x334155, 1)
+      .rectangle(108, modalY + 592, 152, 28, 0x334155, 1)
       .setStrokeStyle(1, 0x94a3b8)
       .setInteractive({ useHandCursor: true });
     this.add(grantBtn);
 
     const grantTxt = this.scene.add
-      .text(108, modalY + 650, '+RM 500 Dev Grant', {
+      .text(108, modalY + 592, '+RM 500 Dev Grant', {
         fontFamily: 'monospace',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -167,13 +167,13 @@ export class UpgradeKedaiModal extends BaseEntity {
     });
 
     const resetBtn = this.scene.add
-      .rectangle(282, modalY + 650, 152, 30, 0x7f1d1d, 1)
+      .rectangle(282, modalY + 592, 152, 28, 0x7f1d1d, 1)
       .setStrokeStyle(1, 0xfca5a5)
       .setInteractive({ useHandCursor: true });
     this.add(resetBtn);
 
     const resetTxt = this.scene.add
-      .text(282, modalY + 650, '↺ Reset Save Data', {
+      .text(282, modalY + 592, '↺ Reset Save Data', {
         fontFamily: 'monospace',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -189,15 +189,15 @@ export class UpgradeKedaiModal extends BaseEntity {
     });
 
     const closeBtn = this.scene.add
-      .rectangle(GAME_WIDTH / 2, modalY + 704, modalW - 28, 42, 0xd97706, 1)
+      .rectangle(GAME_WIDTH / 2, modalY + 642, modalW - 28, 40, 0xd97706, 1)
       .setStrokeStyle(2, 0xfef08a, 1)
       .setInteractive({ useHandCursor: true });
     this.add(closeBtn);
 
     const closeTxt = this.scene.add
-      .text(GAME_WIDTH / 2, modalY + 704, 'CONTINUE TO STALL ▶', {
+      .text(GAME_WIDTH / 2, modalY + 642, 'CONTINUE TO STALL ▶', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '14px',
+        fontSize: '13.5px',
         fontStyle: 'bold',
         color: '#ffffff',
       })
@@ -217,32 +217,32 @@ export class UpgradeKedaiModal extends BaseEntity {
     card.strokeRoundedRect(x, y, w, h, 12);
 
     card.fillStyle(0x15803d, 1);
-    card.fillCircle(x + 34, y + 30, 15);
+    card.fillCircle(x + 34, y + 28, 14);
     card.fillStyle(0x78350f, 1);
-    card.fillRect(x + 31, y + 40, 6, 11);
+    card.fillRect(x + 31, y + 37, 6, 10);
     this.add(card);
 
     const title = this.scene.add.text(
       x + 60,
-      y + 14,
+      y + 11,
       'TIER 2: KEDAI BAWAH POKOK',
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '13px',
+        fontSize: '12.5px',
         fontStyle: 'bold',
         color: '#4ade80',
       }
     );
-    const costLabel = this.scene.add.text(x + 60, y + 32, 'Cost: RM 300.00', {
+    const costLabel = this.scene.add.text(x + 60, y + 28, 'Cost: RM 300.00', {
       fontFamily: 'monospace',
-      fontSize: '11.5px',
+      fontSize: '11px',
       fontStyle: 'bold',
       color: '#fde047',
     });
 
     const perks = this.scene.add.text(
       x + 14,
-      y + 58,
+      y + 52,
       [
         '• Canopy stall under shady tree w/ 4 plastic tables',
         '• Max waiting customers increased: 2 → 4',
@@ -251,21 +251,21 @@ export class UpgradeKedaiModal extends BaseEntity {
       ].join('\n'),
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '11px',
+        fontSize: '10.5px',
         color: '#e2e8f0',
-        lineSpacing: 5,
+        lineSpacing: 4,
       }
     );
 
     this.tier2BtnBg = this.scene.add
-      .rectangle(x + w / 2, y + h - 26, w - 32, 36, 0x16a34a, 1)
+      .rectangle(x + w / 2, y + h - 24, w - 32, 34, 0x16a34a, 1)
       .setStrokeStyle(1.5, 0xfef08a, 0.9)
       .setInteractive({ useHandCursor: true });
 
     this.tier2BtnText = this.scene.add
-      .text(x + w / 2, y + h - 26, 'BUY UPGRADE (RM 300)', {
+      .text(x + w / 2, y + h - 24, 'BUY UPGRADE (RM 300)', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '12.5px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#ffffff',
       })
@@ -288,30 +288,30 @@ export class UpgradeKedaiModal extends BaseEntity {
     card.strokeRoundedRect(x, y, w, h, 12);
 
     card.fillStyle(0x0284c7, 1);
-    card.fillRoundedRect(x + 18, y + 18, 30, 28, 4);
+    card.fillRoundedRect(x + 18, y + 16, 30, 26, 4);
     card.fillStyle(0xfef08a, 1);
-    card.fillRect(x + 23, y + 24, 7, 7);
-    card.fillRect(x + 35, y + 24, 7, 7);
+    card.fillRect(x + 23, y + 21, 7, 7);
+    card.fillRect(x + 35, y + 21, 7, 7);
     this.add(card);
 
     const title = this.scene.add.text(
       x + 60,
-      y + 14,
+      y + 11,
       'TIER 3: CORNER LOT MAMAK',
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '13px',
+        fontSize: '12.5px',
         fontStyle: 'bold',
         color: '#38bdf8',
       }
     );
     const costLabel = this.scene.add.text(
       x + 60,
-      y + 32,
+      y + 28,
       'Cost: RM 1,200.00',
       {
         fontFamily: 'monospace',
-        fontSize: '11.5px',
+        fontSize: '11px',
         fontStyle: 'bold',
         color: '#fde047',
       }
@@ -319,7 +319,7 @@ export class UpgradeKedaiModal extends BaseEntity {
 
     const perks = this.scene.add.text(
       x + 14,
-      y + 58,
+      y + 52,
       [
         '• Bright shophouse corner lot w/ football banners',
         '• Unlocks Roti Telur (RM 4.50) & Nasi Kandar (RM 9.50)',
@@ -328,21 +328,21 @@ export class UpgradeKedaiModal extends BaseEntity {
       ].join('\n'),
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '11px',
+        fontSize: '10.5px',
         color: '#e2e8f0',
-        lineSpacing: 5,
+        lineSpacing: 4,
       }
     );
 
     this.tier3BtnBg = this.scene.add
-      .rectangle(x + w / 2, y + h - 26, w - 32, 36, 0x0284c7, 1)
+      .rectangle(x + w / 2, y + h - 24, w - 32, 34, 0x0284c7, 1)
       .setStrokeStyle(1.5, 0xfef08a, 0.9)
       .setInteractive({ useHandCursor: true });
 
     this.tier3BtnText = this.scene.add
-      .text(x + w / 2, y + h - 26, 'BUY UPGRADE (RM 1,200)', {
+      .text(x + w / 2, y + h - 24, 'BUY UPGRADE (RM 1,200)', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '12.5px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: '#ffffff',
       })
@@ -401,8 +401,8 @@ export class UpgradeKedaiModal extends BaseEntity {
       summary.revenueEarned + summary.tipsEarned - summary.wastePenalty;
     this.receiptStatsText.setText(
       [
-        `Served: ${summary.servedCount}  |  Walk-outs: ${summary.walkoutsCount}  |  Wasted: ${summary.wasteCount} (-RM ${summary.wastePenalty.toFixed(2)})`,
-        `Sales: RM ${summary.revenueEarned.toFixed(2)}  |  Tips/Combo: +RM ${summary.tipsEarned.toFixed(2)}  |  Net: RM ${netProfit.toFixed(2)}`,
+        `Served: ${summary.servedCount} | Walk-outs: ${summary.walkoutsCount} | Waste: ${summary.wasteCount} (-RM ${summary.wastePenalty.toFixed(2)})`,
+        `Sales: RM ${summary.revenueEarned.toFixed(2)} | Tips: +RM ${summary.tipsEarned.toFixed(2)} | Net: RM ${netProfit.toFixed(2)}`,
       ].join('\n')
     );
 
