@@ -31,6 +31,7 @@ export interface TrayItemCallbacks {
 export class FoodTrayItem extends BaseEntity {
   public readonly trayIndex: number;
   public readonly recipeId: RecipeId;
+  public readonly isPadu: boolean;
   private readonly homeX: number;
   private readonly homeY: number;
   private readonly callbacks: TrayItemCallbacks;
@@ -49,11 +50,13 @@ export class FoodTrayItem extends BaseEntity {
     recipeId: RecipeId,
     x: number,
     y: number,
-    callbacks: TrayItemCallbacks
+    callbacks: TrayItemCallbacks,
+    isPadu = false
   ) {
     super(scene, x, y);
     this.trayIndex = trayIndex;
     this.recipeId = recipeId;
+    this.isPadu = isPadu;
     this.homeX = x;
     this.homeY = y;
     this.callbacks = callbacks;
@@ -71,11 +74,11 @@ export class FoodTrayItem extends BaseEntity {
     const gfx = this.scene.add.graphics();
 
     // Compact stainless steel serving plate base (3 slots + Trash bin on the 390px counter)
-    gfx.fillStyle(0x94a3b8, 1);
+    gfx.fillStyle(this.isPadu ? 0xfef08a : 0x94a3b8, 1);
     gfx.fillRoundedRect(-41, -28, 82, 56, 10);
-    gfx.fillStyle(0xe2e8f0, 1);
+    gfx.fillStyle(this.isPadu ? 0xfffbeb : 0xe2e8f0, 1);
     gfx.fillRoundedRect(-37, -24, 74, 48, 8);
-    gfx.lineStyle(2, 0xfacc15, 0.95);
+    gfx.lineStyle(this.isPadu ? 2.5 : 2, this.isPadu ? 0xf59e0b : 0xfacc15, 0.98);
     gfx.strokeRoundedRect(-41, -28, 82, 56, 10);
 
     Customer.drawFoodIcon(gfx, this.recipeId, 0, -5, 1.0);
@@ -87,6 +90,15 @@ export class FoodTrayItem extends BaseEntity {
     gfx.fillCircle(-31, -18, 6);
     this.add(gfx);
 
+    if (this.isPadu) {
+      const paduBadge = this.scene.add
+        .text(28, -18, '✨', {
+          fontSize: '11px',
+        })
+        .setOrigin(0.5);
+      this.add(paduBadge);
+    }
+
     const slotNum = this.scene.add
       .text(-31, -18, `${this.trayIndex + 1}`, {
         fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -97,23 +109,24 @@ export class FoodTrayItem extends BaseEntity {
       .setOrigin(0.5);
     this.add(slotNum);
 
+    const priceDisplay = this.isPadu ? def.price + 1.0 : def.price;
     const label = this.scene.add
-      .text(0, 16, `${def.shortName} (RM${def.price.toFixed(2)})`, {
+      .text(0, 16, `${def.shortName} (RM${priceDisplay.toFixed(2)})`, {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '8px',
         fontStyle: 'bold',
-        color: '#0f172a',
+        color: this.isPadu ? '#b45309' : '#0f172a',
       })
       .setOrigin(0.5);
     this.add(label);
 
     this.statusTag = this.scene.add
-      .text(0, -34, 'SERVE ✓ / DRAG', {
+      .text(0, -34, this.isPadu ? '✨ PADU! (+RM1)' : 'SERVE ✓ / DRAG', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '7.5px',
         fontStyle: 'bold',
-        color: '#fef08a',
-        backgroundColor: '#15803d',
+        color: this.isPadu ? '#1c1917' : '#fef08a',
+        backgroundColor: this.isPadu ? '#facc15' : '#15803d',
         padding: { x: 4, y: 1.5 },
       })
       .setOrigin(0.5);
@@ -129,6 +142,11 @@ export class FoodTrayItem extends BaseEntity {
         .setText('❓ NO ORDER')
         .setBackgroundColor('#b45309')
         .setColor('#fffbeb');
+    } else if (this.isPadu) {
+      this.statusTag
+        .setText('✨ PADU! (+RM1)')
+        .setBackgroundColor('#facc15')
+        .setColor('#1c1917');
     } else {
       this.statusTag
         .setText('SERVE ✓ / DRAG')
@@ -142,11 +160,14 @@ export class FoodTrayItem extends BaseEntity {
   }
 
   private setupDragAndClick(): void {
-    this.setSize(84, 62);
-    this.setInteractive(
-      new Phaser.Geom.Rectangle(-42, -31, 84, 62),
-      Phaser.Geom.Rectangle.Contains
-    );
+    // Do NOT call this.setSize() here: in Phaser 3, Container.displayOriginX/Y = width*0.5 / height*0.5,
+    // which shifts hitArea coordinates by (+width/2, +height/2) and clips the bottom/right half!
+    // Leaving width=0, height=0 keeps (0,0) at the true center of the tray item.
+    this.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-47, -42, 94, 76),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
     this.scene.input.setDraggable(this);
 
     this.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -167,7 +188,7 @@ export class FoodTrayItem extends BaseEntity {
         pointer.x,
         pointer.y
       );
-      if (dist > 6 && !this.isDragging) {
+      if (dist > 12 && !this.isDragging) {
         this.isDragging = true;
         this.callbacks.onPressPreview(this, false);
       }
@@ -183,7 +204,13 @@ export class FoodTrayItem extends BaseEntity {
       this.releaseHandled = true;
       this.callbacks.onPressPreview(this, false);
       this.callbacks.onDragHover(this, pointer.x, pointer.y, false);
-      const wasClick = !this.isDragging;
+      const distFromHome = Phaser.Math.Distance.Between(
+        this.homeX,
+        this.homeY,
+        pointer.x,
+        pointer.y
+      );
+      const wasClick = !this.isDragging || distFromHome < 36;
       const result = this.callbacks.onServeAttempt(this, pointer.x, pointer.y, wasClick);
       if (!this.scene) return; // served & destroyed
       if (result === 'rejected') {

@@ -4,7 +4,7 @@ import { RecipeId } from '../state/GameState';
 import { getRecipeDef } from '../config/recipes';
 
 export type CustomerState = 'walking_in' | 'waiting' | 'leaving_happy' | 'leaving_angry';
-export type CustomerArchetype = 'regular' | 'tapau_rider' | 'bola_fan';
+export type CustomerArchetype = 'regular' | 'tapau_rider' | 'bola_fan' | 'vip_vlogger';
 
 export interface CustomerEvents {
   onServed: (
@@ -62,7 +62,8 @@ export class Customer extends BaseEntity {
     targetY: number,
     requestedItems: RecipeId[],
     callbacks: CustomerEvents,
-    archetype: CustomerArchetype = 'regular'
+    archetype: CustomerArchetype = 'regular',
+    patienceModifier = 1.0
   ) {
     super(scene, spawnX, spawnY);
     this.seatIndex = seatIndex;
@@ -73,16 +74,21 @@ export class Customer extends BaseEntity {
     this.remainingItems = [...requestedItems];
     this.callbacks = callbacks;
 
+    let basePatienceMs = 15000;
     if (archetype === 'tapau_rider') {
-      this.maxPatienceMs = 11000;
+      basePatienceMs = 11000;
       this.shirtColor = 0x16a34a;
     } else if (archetype === 'bola_fan') {
-      this.maxPatienceMs = 19000;
+      basePatienceMs = 19000;
       this.shirtColor = 0xdc2626;
+    } else if (archetype === 'vip_vlogger') {
+      basePatienceMs = 16000;
+      this.shirtColor = 0x9333ea;
     } else {
-      this.maxPatienceMs = 15000;
+      basePatienceMs = 15000;
       this.shirtColor = SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)];
     }
+    this.maxPatienceMs = Math.round(basePatienceMs * patienceModifier);
     this.remainingPatienceMs = this.maxPatienceMs;
     this.skinColor = SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)];
 
@@ -131,6 +137,12 @@ export class Customer extends BaseEntity {
       this.bodyGraphics.fillRect(-21, 9, 42, 6);
       this.bodyGraphics.fillRect(-12, -3, 5, 14);
       this.bodyGraphics.fillRect(7, -3, 5, 14);
+    } else if (this.archetype === 'vip_vlogger') {
+      // Gold chain & Vlogger lapel mic
+      this.bodyGraphics.lineStyle(2.5, 0xfacc15, 0.95);
+      this.bodyGraphics.strokeCircle(0, 3, 8);
+      this.bodyGraphics.fillStyle(0xfef08a, 1);
+      this.bodyGraphics.fillCircle(0, 11, 3);
     } else {
       // Polo collar V-neck
       this.bodyGraphics.fillStyle(0xffffff, 0.3);
@@ -196,8 +208,18 @@ export class Customer extends BaseEntity {
 
     // Archetype badge pill on torso if special customer
     if (this.archetype !== 'regular') {
-      const tagText = this.archetype === 'tapau_rider' ? '🛵 TAPAU' : '⚽ BOLA';
-      const tagBg = this.archetype === 'tapau_rider' ? '#14532d' : '#7f1d1d';
+      const tagText =
+        this.archetype === 'tapau_rider'
+          ? '🛵 TAPAU'
+          : this.archetype === 'bola_fan'
+          ? '⚽ BOLA'
+          : '👑 VLOGGER';
+      const tagBg =
+        this.archetype === 'tapau_rider'
+          ? '#14532d'
+          : this.archetype === 'bola_fan'
+          ? '#7f1d1d'
+          : '#581c87';
       this.archetypeTag = this.scene.add
         .text(0, 22, tagText, {
           fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -303,6 +325,8 @@ export class Customer extends BaseEntity {
         ? 0x22c55e
         : this.archetype === 'bola_fan'
         ? 0xef4444
+        : this.archetype === 'vip_vlogger'
+        ? 0xa855f7
         : 0xf59e0b;
 
     // Subtle drop shadow under speech bubble
@@ -557,7 +581,6 @@ export class Customer extends BaseEntity {
   }
 
   private setupInteractivity(): void {
-    this.setSize(96, 160);
     this.setInteractive(
       new Phaser.Geom.Rectangle(-48, -125, 96, 165),
       Phaser.Geom.Rectangle.Contains
@@ -623,6 +646,24 @@ export class Customer extends BaseEntity {
 
   public getPatienceRatio(): number {
     return Math.max(0, Math.min(1, this.remainingPatienceMs / this.maxPatienceMs));
+  }
+
+  /** Restores a fraction of max patience (e.g. +0.35 when a live football goal is scored!). */
+  public boostPatience(ratioDelta: number): void {
+    if (this.customerState !== 'waiting') return;
+    this.remainingPatienceMs = Math.min(
+      this.maxPatienceMs,
+      this.remainingPatienceMs + this.maxPatienceMs * ratioDelta
+    );
+    this.updatePatienceBarGraphic();
+    this.scene.tweens.add({
+      targets: this,
+      y: this.targetY - 8,
+      duration: 130,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Sine.easeOut',
+    });
   }
 
   private updatePatienceBarGraphic(): void {

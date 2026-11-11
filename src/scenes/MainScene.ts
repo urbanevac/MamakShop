@@ -39,6 +39,8 @@ const SERVING_TRAY_SLOTS: Array<{ x: number; y: number }> = [
 
 const TRASH_BIN_POS = { x: 342, y: 406 };
 
+export type LiveMamakEvent = 'none' | 'bola_goal' | 'hujan_lebat';
+
 export class MainScene extends Phaser.Scene {
   private envContainer!: Phaser.GameObjects.Container;
   private topHud!: TopHud;
@@ -55,6 +57,14 @@ export class MainScene extends Phaser.Scene {
   private trayHeaderText!: Phaser.GameObjects.Text;
   private trashBinBg!: Phaser.GameObjects.Rectangle;
   private spawnCooldownMs = 600;
+  private lastServedPadu = false;
+
+  // Live mid-shift Mamak event state
+  private activeEvent: LiveMamakEvent = 'none';
+  private eventRemainingMs = 0;
+  private lastEventDay = 0;
+  private eventBanner!: Phaser.GameObjects.Text;
+  private rainGfx!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -68,10 +78,29 @@ export class MainScene extends Phaser.Scene {
     this.isPaused = false;
     this.tutorial = null;
     this.previewTarget = null;
+    this.lastServedPadu = false;
+    this.activeEvent = 'none';
+    this.eventRemainingMs = 0;
+    this.lastEventDay = 0;
     this.unsubscribers = [];
 
     this.envContainer = this.add.container(0, 0);
     this.drawEnvironmentForTier(gameState.getState().tier.level);
+
+    // Live Event overlay graphics (rain streaks + top event banner pill)
+    this.rainGfx = this.add.graphics().setDepth(15);
+    this.eventBanner = this.add
+      .text(GAME_WIDTH / 2, 152, '', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#fef08a',
+        backgroundColor: '#1e3a8a',
+        padding: { x: 8, y: 3 },
+      })
+      .setOrigin(0.5)
+      .setDepth(32)
+      .setVisible(false);
 
     // Top HUD with "🏪 UPGRADE" Shop button and ⏸ Pause button
     this.topHud = new TopHud(
@@ -88,7 +117,7 @@ export class MainScene extends Phaser.Scene {
     this.prepDock = new PrepStationDock(this, gameState, {
       canAddToServingTray: () => this.servingTray.some((slot) => slot === null),
       canAneAutoBrewDrink: () => this.shouldAneAutoBrewDrink(),
-      onPlateItem: (recipeId) => this.addItemToServingTray(recipeId),
+      onPlateItem: (recipeId, isPadu) => this.addItemToServingTray(recipeId, isPadu),
       onStationMessage: (x, y, text, color) => this.showPopup(x, y, text, color),
       getNeededDrinkRecipe: () => this.findNeededDrinkRecipe(),
       onStationEvent: (event) => this.emitTutorialEvent(event),
@@ -364,6 +393,21 @@ export class MainScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setAlpha(0.55);
       this.envContainer.add(slotTxt);
+
+      // Full-slot fallback hit zone covering the entire Tray 1 / Tray 2 / Tray 3 slot area
+      const slotZone = this.add
+        .zone(pos.x, pos.y - 2, 92, 68)
+        .setInteractive({ useHandCursor: true });
+      slotZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        const item = this.servingTray[idx];
+        if (item && !item.isMoving) {
+          const res = this.tryFulfillOrDiscardOrder(item, pointer.x, pointer.y, true);
+          if (res === 'rejected' && item.scene) {
+            item.rejectBounce();
+          }
+        }
+      });
+      this.envContainer.add(slotZone);
     });
 
     // --- Trash / Discard Bin on Right Side of Counter (Logical 342, 406) ---
@@ -629,7 +673,7 @@ export class MainScene extends Phaser.Scene {
     gfx.fillEllipse(cx, cy - 1, 8, 3);
   }
 
-  private addItemToServingTray(recipeId: RecipeId): boolean {
+  private addItemToServingTray(recipeId: RecipeId, isPadu = false): boolean {
     const emptyIdx = this.servingTray.findIndex((item) => item === null);
     if (emptyIdx === -1) {
       return false;
@@ -649,7 +693,8 @@ export class MainScene extends Phaser.Scene {
           this.updateCustomerDropHighlights(item, px, py, isDragging),
         onPressPreview: (item, active) =>
           this.updatePressPreview(item, active),
-      }
+      },
+      isPadu
     );
     trayItem.setDepth(25);
     this.servingTray[emptyIdx] = trayItem;
@@ -886,6 +931,7 @@ export class MainScene extends Phaser.Scene {
     if (this.servingTray[item.trayIndex] === item) {
       this.servingTray[item.trayIndex] = null;
     }
+    this.lastServedPadu = item.isPadu;
     item.destroy();
     this.updateTrayHeaderCount();
 
@@ -899,6 +945,7 @@ export class MainScene extends Phaser.Scene {
    * Spawns a customer with phase-driven Rush Hour recipe weights and Customer Archetypes:
    * - Morning: Breakfast Rush (Teh Tarik & Roti Canai bias)
    * - Evening/Night: Supper & Bola Live Rush (higher Bola Fan & Tapau Rider chance)
+   * - High Reputation (Rep >= 75): Higher chance of 👑 VIP Food Vlogger customers!
    */
   private spawnCustomerInSeat(
     seatIndex: number,
@@ -913,16 +960,19 @@ export class MainScene extends Phaser.Scene {
     const unlocked = state.unlockedRecipes;
     if (unlocked.length === 0) return null;
 
-    // Choose Customer Archetype based on time of day (unless forced by tutorial)
+    // Choose Customer Archetype based on Reputation & Time of Day (unless forced by tutorial)
     let archetype: CustomerArchetype = forcedArchetype ?? 'regular';
     if (!forcedArchetype) {
+      const vloggerChance = state.reputation >= 80 ? 0.22 : state.reputation >= 60 ? 0.1 : 0.03;
       const roll = Math.random();
-      if (state.isNight) {
-        if (roll < 0.32) archetype = 'bola_fan';
-        else if (roll < 0.52) archetype = 'tapau_rider';
+      if (roll < vloggerChance) {
+        archetype = 'vip_vlogger';
+      } else if (state.isNight || this.activeEvent === 'bola_goal') {
+        if (roll < vloggerChance + 0.34) archetype = 'bola_fan';
+        else if (roll < vloggerChance + 0.54) archetype = 'tapau_rider';
       } else {
-        if (roll < 0.22) archetype = 'tapau_rider';
-        else if (roll < 0.32) archetype = 'bola_fan';
+        if (roll < vloggerChance + 0.22) archetype = 'tapau_rider';
+        else if (roll < vloggerChance + 0.32) archetype = 'bola_fan';
       }
     }
 
@@ -930,9 +980,9 @@ export class MainScene extends Phaser.Scene {
     if (forcedOrder && forcedOrder.length > 0) {
       requested = [...forcedOrder];
     } else {
-      // Bola fans usually order 2 items (drink + food); Tapau riders order 1 quick item
+      // Bola fans and VIP Vloggers order 2 items; Tapau riders order 1 quick item
       const orderCount =
-        archetype === 'bola_fan'
+        archetype === 'bola_fan' || archetype === 'vip_vlogger'
           ? 2
           : archetype === 'tapau_rider'
           ? 1
@@ -946,6 +996,9 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
+    // Low Reputation (< 30) makes arriving customers 15% less patient!
+    const patienceModifier = state.reputation < 30 ? 0.85 : 1.0;
+
     const customer = new Customer(
       this,
       seatIndex,
@@ -957,24 +1010,42 @@ export class MainScene extends Phaser.Scene {
       {
         onServed: (cust, recipeId, allComplete, patienceRatio) => {
           const def = getRecipeDef(recipeId);
+          const curState = gameState.getState();
+          const wasPadu = this.lastServedPadu;
+          this.lastServedPadu = false;
 
-          // Archetype & fast-service tip calculation
+          // Archetype, Padu flip, Termos drink, & Live Event bonus calculation
           let tip = patienceRatio > 0.6 ? 1.0 : 0;
           if (cust.archetype === 'tapau_rider' && patienceRatio > 0.45) {
             tip += 2.0; // Priority delivery rider bonus
           } else if (cust.archetype === 'bola_fan' && patienceRatio > 0.5) {
             tip += 1.0;
+          } else if (cust.archetype === 'vip_vlogger' && patienceRatio > 0.45) {
+            tip += 3.5; // Viral Vlogger review bonus!
+          }
+
+          if (wasPadu) {
+            tip += 1.0; // Golden Padu flip bonus
+          }
+          if (def.category === 'drink' && curState.hasTermosAir) {
+            tip += 0.5; // Termos Air Panas "Kaw!" drink bonus
+          }
+          if (this.activeEvent !== 'none') {
+            tip += 1.0; // Live Mamak Rush event bonus
           }
 
           const totalEarned = gameState.recordSale(def.price, tip, allComplete);
 
           if (allComplete) {
-            const repGain =
-              cust.archetype === 'bola_fan'
+            let repGain =
+              cust.archetype === 'vip_vlogger'
+                ? 6
+                : cust.archetype === 'bola_fan'
                 ? 5
                 : patienceRatio > 0.6
                 ? 3
                 : 1;
+            if (wasPadu) repGain += 1;
             gameState.adjustReputation(repGain);
           }
 
@@ -985,18 +1056,19 @@ export class MainScene extends Phaser.Scene {
             haptic(HAPTIC.serve, 'serve');
           }
 
-          const extraLabel =
-            streak >= 3
-              ? ` 🔥${streak}x!`
-              : tip > 0
-              ? ` (Tip!)`
-              : '';
+          const tags: string[] = [];
+          if (wasPadu) tags.push('✨Padu');
+          if (cust.archetype === 'vip_vlogger' && patienceRatio > 0.45) tags.push('👑VIP');
+          if (streak >= 3) tags.push(`🔥${streak}x`);
+          else if (tip > 0 && tags.length === 0) tags.push('Tip!');
+
+          const extraLabel = tags.length > 0 ? ` (${tags.join(' ')})` : '';
 
           this.showPopup(
             cust.x,
             cust.y - 75,
             `+RM ${totalEarned.toFixed(2)}${extraLabel}`,
-            '#4ade80'
+            wasPadu ? '#fde047' : '#4ade80'
           );
           this.syncMatchHints();
         },
@@ -1014,7 +1086,8 @@ export class MainScene extends Phaser.Scene {
           this.syncMatchHints();
         },
       },
-      archetype
+      archetype,
+      patienceModifier
     );
 
     customer.setDepth(10);
@@ -1071,6 +1144,76 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
+  private updateLiveMamakEvent(time: number, delta: number): void {
+    const state = gameState.getState();
+
+    // Trigger 1 live event per shift around the 36s mark (20s duration)
+    if (
+      this.activeEvent === 'none' &&
+      this.lastEventDay !== state.day &&
+      state.dayElapsedSeconds >= 36 &&
+      state.dayElapsedSeconds <= 54
+    ) {
+      this.lastEventDay = state.day;
+      this.activeEvent = state.isNight || Math.random() < 0.5 ? 'bola_goal' : 'hujan_lebat';
+      this.eventRemainingMs = 18000;
+      haptic(HAPTIC.combo, 'combo');
+
+      if (this.activeEvent === 'bola_goal') {
+        this.customers.forEach((c) => c?.boostPatience(0.35));
+        this.showPopup(
+          GAME_WIDTH / 2,
+          215,
+          '⚽ GOL! HARIMAU MALAYA SCORES! (+35% Patience & +RM1 Bonus)',
+          '#fde047'
+        );
+      } else {
+        this.showPopup(
+          GAME_WIDTH / 2,
+          215,
+          '🌧️ HUJAN LEBAT! Hot Order Rush (+RM 1.00 Bonus!)',
+          '#38bdf8'
+        );
+      }
+    }
+
+    if (this.activeEvent !== 'none') {
+      this.eventRemainingMs -= delta;
+      if (this.eventRemainingMs <= 0) {
+        this.activeEvent = 'none';
+        this.eventBanner.setVisible(false);
+        this.rainGfx.clear();
+        return;
+      }
+
+      const secLeft = Math.ceil(this.eventRemainingMs / 1000);
+      if (this.activeEvent === 'bola_goal') {
+        this.eventBanner
+          .setText(`⚽ GOL! BOLA FEVER: +RM 1.00 ON ALL SERVES (${secLeft}s)`)
+          .setBackgroundColor('#991b1b')
+          .setColor('#fef08a')
+          .setVisible(true);
+        this.rainGfx.clear();
+      } else {
+        this.eventBanner
+          .setText(`🌧️ HUJAN LEBAT! +RM 1.00 COMFORT BONUS (${secLeft}s)`)
+          .setBackgroundColor('#0c4a6e')
+          .setColor('#e0f2fe')
+          .setVisible(true);
+
+        // Draw animated diagonal rain streaks across the stall backdrop
+        this.rainGfx.clear();
+        this.rainGfx.lineStyle(1.2, 0x7dd3fc, 0.28);
+        const offset = Math.floor(time * 0.25) % 40;
+        for (let i = 0; i < 14; i++) {
+          const rx = ((i * 31 + offset) % (GAME_WIDTH - 24)) + 12;
+          const ry = 148 + ((i * 29 + offset * 2) % 165);
+          this.rainGfx.lineBetween(rx, ry, rx - 6, ry + 16);
+        }
+      }
+    }
+  }
+
   override update(time: number, delta: number): void {
     if (this.isPaused || (this.upgradeModal && this.upgradeModal.visible)) {
       return;
@@ -1079,6 +1222,7 @@ export class MainScene extends Phaser.Scene {
     const tutorialActive = Boolean(this.tutorial && this.tutorial.isActive);
     if (!tutorialActive) {
       this.topHud.updateEntity(time, delta);
+      this.updateLiveMamakEvent(time, delta);
     }
     this.prepDock.updateEntity(time, delta);
 

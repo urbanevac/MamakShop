@@ -13,12 +13,13 @@ interface GriddleSlotState {
   stage: RotiCanaiStage;
   timerMs: number;
   recipeId: RecipeId;
+  isPadu: boolean;
 }
 
 export interface PrepStationCallbacks {
   canAddToServingTray: () => boolean;
   canAneAutoBrewDrink: () => boolean;
-  onPlateItem: (recipeId: RecipeId) => boolean;
+  onPlateItem: (recipeId: RecipeId, isPadu?: boolean) => boolean;
   onStationMessage: (x: number, y: number, text: string, color: string) => void;
   getNeededDrinkRecipe: () => RecipeId;
   /** Gameplay milestones consumed by the first-shift tutorial. */
@@ -79,8 +80,8 @@ export class PrepStationDock extends BaseEntity {
   private burnWarned: [boolean, boolean] = [false, false];
 
   private griddleSlots: [GriddleSlotState, GriddleSlotState] = [
-    { stage: 'idle', timerMs: 0, recipeId: 'roti_canai' },
-    { stage: 'idle', timerMs: 0, recipeId: 'roti_canai' },
+    { stage: 'idle', timerMs: 0, recipeId: 'roti_canai', isPadu: false },
+    { stage: 'idle', timerMs: 0, recipeId: 'roti_canai', isPadu: false },
   ];
 
   private foodPillsContainer!: Phaser.GameObjects.Container;
@@ -135,8 +136,21 @@ export class PrepStationDock extends BaseEntity {
   // Tutorial / UX helpers
   // =========================================================================
 
-  private get burnDurationMs(): number {
-    return this.ROTI_BURN_DURATION_MS * this.burnMultiplier;
+  private getDrinkFillDurationMs(recipeId = this.selectedDrinkRecipe): number {
+    const baseMs = getRecipeDef(recipeId).prepTimeMs || this.TEH_FILL_DURATION_MS;
+    const mult = this.store.getState().hasTermosAir ? 0.7 : 1.0;
+    return Math.round(baseMs * mult);
+  }
+
+  private getFoodCookDurationMs(recipeId: RecipeId): number {
+    const baseMs = getRecipeDef(recipeId).prepTimeMs || this.ROTI_COOK_DURATION_MS;
+    const mult = this.store.getState().hasTurboKuali ? 0.75 : 1.0;
+    return Math.round(baseMs * mult);
+  }
+
+  private getFoodBurnDurationMs(recipeId: RecipeId): number {
+    const baseBurn = getRecipeDef(recipeId).burnWindowMs ?? this.ROTI_BURN_DURATION_MS;
+    return Math.round(baseBurn * this.burnMultiplier);
   }
 
   private emitStationEvent(event: StationEvent): void {
@@ -531,9 +545,10 @@ export class PrepStationDock extends BaseEntity {
     this.tehStreamGfx.clear();
     this.tehProgressFill.clear();
 
+    const fillDurMs = this.getDrinkFillDurationMs();
     const fillRatio =
       this.tehStage === 'filling'
-        ? Math.min(1, this.tehFillElapsedMs / this.TEH_FILL_DURATION_MS)
+        ? Math.min(1, this.tehFillElapsedMs / fillDurMs)
         : this.tehStage === 'filled' || this.tehStage === 'pulling'
         ? 1
         : 0;
@@ -585,13 +600,18 @@ export class PrepStationDock extends BaseEntity {
         .setText('EMPTY')
         .setBackgroundColor('#0f172a')
         .setColor('#94a3b8');
+      const pourSec = (fillDurMs / 1000).toFixed(1);
       this.tehStatusText
         .setText(
           state.hasAneHelper
             ? '🤖 Ane Helper Smart-Brew ON'
-            : '1. Tap Kettle to fill (1.5s)'
+            : state.hasTermosAir
+            ? `🫖 Termos ON • Tap Kettle (${pourSec}s)`
+            : `1. Tap Kettle to fill (${pourSec}s)`
         )
-        .setColor(state.hasAneHelper ? '#4ade80' : '#cbd5e1');
+        .setColor(
+          state.hasAneHelper || state.hasTermosAir ? '#4ade80' : '#cbd5e1'
+        );
     } else if (this.tehStage === 'filling') {
       this.kettleBadge
         .setText('POURING...')
@@ -784,6 +804,7 @@ export class PrepStationDock extends BaseEntity {
       stage: 'cooking',
       timerMs: 0,
       recipeId: this.selectedFoodRecipe,
+      isPadu: false,
     };
     this.emitStationEvent('dough_tapped');
 
@@ -802,9 +823,12 @@ export class PrepStationDock extends BaseEntity {
     const container = this.griddleSlotContainers[slotIdx];
 
     if (slot.stage === 'ready_to_flip') {
+      const burnDur = this.getFoodBurnDurationMs(slot.recipeId);
+      const isPaduFlip = slot.timerMs <= burnDur * 0.45;
       slot.stage = 'cooked';
       slot.timerMs = 0;
-      haptic(HAPTIC.tap, 'tap');
+      slot.isPadu = isPaduFlip;
+      haptic(isPaduFlip ? HAPTIC.serve : HAPTIC.tap, 'tap');
       this.scene.tweens.add({
         targets: container,
         scaleY: 1.08,
@@ -814,8 +838,10 @@ export class PrepStationDock extends BaseEntity {
       this.callbacks.onStationMessage(
         container.x,
         container.y - 26,
-        'Nice flip! Tap again to plate',
-        '#facc15'
+        isPaduFlip
+          ? '✨ PADU FLIP! (+RM 1.00) • Tap to plate!'
+          : 'Nice flip! Tap again to plate',
+        isPaduFlip ? '#fde047' : '#facc15'
       );
       this.syncRotiVisuals();
       this.emitStationEvent('roti_flipped');
@@ -835,17 +861,20 @@ export class PrepStationDock extends BaseEntity {
       }
 
       const def = getRecipeDef(slot.recipeId);
-      const plated = this.callbacks.onPlateItem(slot.recipeId);
+      const plated = this.callbacks.onPlateItem(slot.recipeId, slot.isPadu);
       if (plated) {
         haptic(HAPTIC.tap, 'tap');
         this.callbacks.onStationMessage(
           container.x,
           container.y - 25,
-          `${def.shortName} Plated! → Tray`,
-          '#4ade80'
+          slot.isPadu
+            ? `✨ Padu ${def.shortName} → Tray (+RM1)!`
+            : `${def.shortName} Plated! → Tray`,
+          slot.isPadu ? '#fde047' : '#4ade80'
         );
         slot.stage = 'idle';
         slot.timerMs = 0;
+        slot.isPadu = false;
         this.syncRotiVisuals();
         this.emitStationEvent('food_plated');
       }
@@ -937,7 +966,8 @@ export class PrepStationDock extends BaseEntity {
           .setBackgroundColor('#0f172a')
           .setColor('#94a3b8');
       } else if (slot.stage === 'cooking') {
-        const ratio = Math.min(1, slot.timerMs / this.ROTI_COOK_DURATION_MS);
+        const cookDur = this.getFoodCookDurationMs(slot.recipeId);
+        const ratio = Math.min(1, slot.timerMs / cookDur);
         gfx.fillStyle(0xfef3c7, 1);
         gfx.fillCircle(panX, panY, panR - 5);
         // Sizzling oil droplets around dough
@@ -951,27 +981,26 @@ export class PrepStationDock extends BaseEntity {
         bar.fillStyle(0x38bdf8, 1);
         bar.fillRoundedRect(barX, barY, Math.max(3, barW * ratio), 6, 3);
       } else if (slot.stage === 'ready_to_flip') {
-        const burnRem = Math.max(
-          0,
-          1 - slot.timerMs / this.burnDurationMs
-        );
-        gfx.fillStyle(0xfacc15, 1);
+        const burnDur = this.getFoodBurnDurationMs(slot.recipeId);
+        const burnRem = Math.max(0, 1 - slot.timerMs / burnDur);
+        const inPaduZone = slot.timerMs <= burnDur * 0.45;
+        gfx.fillStyle(inPaduZone ? 0xfef08a : 0xfacc15, 1);
         gfx.fillCircle(panX, panY, panR - 4);
-        gfx.lineStyle(1.5, 0xd97706, 1);
+        gfx.lineStyle(1.5, inPaduZone ? 0xf59e0b : 0xd97706, 1);
         gfx.strokeCircle(panX, panY, panR - 8);
         badge
-          .setText('FLIP!')
-          .setBackgroundColor('#ea580c')
-          .setColor('#fef08a');
-        bar.fillStyle(0xf97316, 1);
+          .setText(inPaduZone ? (cap === 1 ? '⚡ PADU FLIP!' : '⚡ PADU!') : 'FLIP!')
+          .setBackgroundColor(inPaduZone ? '#facc15' : '#ea580c')
+          .setColor(inPaduZone ? '#1c1917' : '#fef08a');
+        bar.fillStyle(inPaduZone ? 0xfacc15 : 0xf97316, 1);
         bar.fillRoundedRect(barX, barY, Math.max(3, barW * burnRem), 6, 3);
       } else if (slot.stage === 'cooked') {
         Customer.drawFoodIcon(gfx, slot.recipeId, panX, panY, cap === 1 ? 0.82 : 0.68);
         badge
-          .setText('PLATE!')
-          .setBackgroundColor('#16a34a')
-          .setColor('#fef08a');
-        bar.fillStyle(0x22c55e, 1);
+          .setText(slot.isPadu ? (cap === 1 ? '✨ PLATE PADU!' : '✨ PADU!') : 'PLATE!')
+          .setBackgroundColor(slot.isPadu ? '#f59e0b' : '#16a34a')
+          .setColor(slot.isPadu ? '#1c1917' : '#fef08a');
+        bar.fillStyle(slot.isPadu ? 0xfacc15 : 0x22c55e, 1);
         bar.fillRoundedRect(barX, barY, barW, 6, 3);
       } else if (slot.stage === 'burned') {
         gfx.fillStyle(0x1c1917, 1);
@@ -993,25 +1022,40 @@ export class PrepStationDock extends BaseEntity {
     const cooking = activeSlots.find((s) => s.stage === 'cooking');
 
     if (flipping) {
-      const sec = Math.max(
-        0,
-        (this.burnDurationMs - flipping.timerMs) / 1000
-      ).toFixed(1);
+      const burnDur = this.getFoodBurnDurationMs(flipping.recipeId);
+      const sec = Math.max(0, (burnDur - flipping.timerMs) / 1000).toFixed(1);
+      const inPadu = flipping.timerMs <= burnDur * 0.45;
       this.rotiStatusText
-        .setText(`⚠️ FLIP NOW! Burns in ${sec}s`)
-        .setColor('#fb923c');
+        .setText(
+          inPadu
+            ? `⚡ FLIP NOW FOR PADU (+RM1)! (${sec}s)`
+            : `⚠️ FLIP NOW! Burns in ${sec}s`
+        )
+        .setColor(inPadu ? '#fde047' : '#fb923c');
     } else if (cooked) {
       this.rotiStatusText
-        .setText('Tap Griddle → Plate to Tray!')
-        .setColor('#4ade80');
+        .setText(
+          cooked.isPadu
+            ? '✨ Padu! Tap Griddle → Plate (+RM1)'
+            : 'Tap Griddle → Plate to Tray!'
+        )
+        .setColor(cooked.isPadu ? '#fde047' : '#4ade80');
     } else if (cooking) {
       this.rotiStatusText
-        .setText(`Cooking (${cap}x griddle)...`)
+        .setText(
+          state.hasTurboKuali
+            ? `🔥 Turbo Cooking (${cap}x griddle)...`
+            : `Cooking (${cap}x griddle)...`
+        )
         .setColor('#38bdf8');
     } else {
       this.rotiStatusText
-        .setText(`Tap Dough → Griddle (${cap} slot${cap > 1 ? 's' : ''})`)
-        .setColor('#cbd5e1');
+        .setText(
+          state.hasTurboKuali
+            ? `🔥 Turbo Kuali ON (${cap} slot${cap > 1 ? 's' : ''})`
+            : `Tap Dough → Griddle (${cap} slot${cap > 1 ? 's' : ''})`
+        )
+        .setColor(state.hasTurboKuali ? '#4ade80' : '#cbd5e1');
     }
   }
 
@@ -1037,9 +1081,10 @@ export class PrepStationDock extends BaseEntity {
     }
 
     if (this.tehStage === 'filling') {
+      const fillDur = this.getDrinkFillDurationMs();
       this.tehFillElapsedMs += delta;
-      if (this.tehFillElapsedMs >= this.TEH_FILL_DURATION_MS) {
-        this.tehFillElapsedMs = this.TEH_FILL_DURATION_MS;
+      if (this.tehFillElapsedMs >= fillDur) {
+        this.tehFillElapsedMs = fillDur;
         this.tehStage = 'filled';
         this.emitStationEvent('drink_filled');
       }
@@ -1051,8 +1096,9 @@ export class PrepStationDock extends BaseEntity {
     for (let i = 0; i < cap; i++) {
       const slot = this.griddleSlots[i];
       if (slot.stage === 'cooking') {
+        const cookDur = this.getFoodCookDurationMs(slot.recipeId);
         slot.timerMs += delta;
-        if (slot.timerMs >= this.ROTI_COOK_DURATION_MS) {
+        if (slot.timerMs >= cookDur) {
           slot.stage = 'ready_to_flip';
           slot.timerMs = 0;
           this.burnWarned[i] = false;
@@ -1060,15 +1106,17 @@ export class PrepStationDock extends BaseEntity {
         }
         rotiChanged = true;
       } else if (slot.stage === 'ready_to_flip') {
+        const burnDur = this.getFoodBurnDurationMs(slot.recipeId);
         slot.timerMs += delta;
         // Buzz once when the last second of the flip window begins
-        if (!this.burnWarned[i] && this.burnDurationMs - slot.timerMs <= 1000) {
+        if (!this.burnWarned[i] && burnDur - slot.timerMs <= 1000) {
           this.burnWarned[i] = true;
           haptic(HAPTIC.burnWarning, 'burnWarning');
         }
-        if (slot.timerMs >= this.burnDurationMs) {
+        if (slot.timerMs >= burnDur) {
           slot.stage = 'burned';
           slot.timerMs = 0;
+          slot.isPadu = false;
           haptic(HAPTIC.burned, 'burned');
           this.callbacks.onStationMessage(
             this.griddleSlotContainers[i].x,

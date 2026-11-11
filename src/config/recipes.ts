@@ -8,6 +8,7 @@ export interface RecipeDefinition {
   shortName: string;
   price: number;
   prepTimeMs: number;
+  burnWindowMs?: number;
   category: RecipeCategory;
   primaryColor: number;
   accentColor: number;
@@ -19,7 +20,7 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Teh Tarik',
     shortName: 'Teh Tarik',
     price: 2.5,
-    prepTimeMs: 1500,
+    prepTimeMs: 1400,
     category: 'drink',
     primaryColor: 0xc27838,
     accentColor: 0xfef3c7,
@@ -29,7 +30,7 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Milo Ais',
     shortName: 'Milo Ais',
     price: 3.5,
-    prepTimeMs: 1500,
+    prepTimeMs: 1800,
     category: 'drink',
     primaryColor: 0x3e2723,
     accentColor: 0x16a34a,
@@ -39,7 +40,8 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Roti Canai',
     shortName: 'Roti Canai',
     price: 3.0,
-    prepTimeMs: 3000,
+    prepTimeMs: 2400,
+    burnWindowMs: 3200,
     category: 'food',
     primaryColor: 0xfbbf24,
     accentColor: 0xd97706,
@@ -49,7 +51,8 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Maggi Goreng',
     shortName: 'Maggi Grg',
     price: 6.0,
-    prepTimeMs: 3000,
+    prepTimeMs: 3200,
+    burnWindowMs: 2500,
     category: 'food',
     primaryColor: 0xd97706,
     accentColor: 0xef4444,
@@ -59,7 +62,8 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Roti Telur',
     shortName: 'Roti Telur',
     price: 4.5,
-    prepTimeMs: 3000,
+    prepTimeMs: 2800,
+    burnWindowMs: 2800,
     category: 'food',
     primaryColor: 0xfde047,
     accentColor: 0xf97316,
@@ -69,7 +73,8 @@ export const RECIPES: Record<string, RecipeDefinition> = {
     name: 'Nasi Kandar',
     shortName: 'Nasi Kandar',
     price: 9.5,
-    prepTimeMs: 3000,
+    prepTimeMs: 3600,
+    burnWindowMs: 2400,
     category: 'food',
     primaryColor: 0xf8fafc,
     accentColor: 0xb91c1c,

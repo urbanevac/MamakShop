@@ -15,6 +15,7 @@ export class TopHud extends BaseEntity {
   private phaseText!: Phaser.GameObjects.Text;
   private dayProgressBarFill!: Phaser.GameObjects.Graphics;
 
+  private repLabel!: Phaser.GameObjects.Text;
   private repValueText!: Phaser.GameObjects.Text;
   private repBarFill!: Phaser.GameObjects.Graphics;
 
@@ -216,15 +217,15 @@ export class TopHud extends BaseEntity {
     this.dayProgressBarFill = this.scene.add.graphics();
     this.add(this.dayProgressBarFill);
 
-    const repLabel = this.scene.add
+    this.repLabel = this.scene.add
       .text(this.HUD_X + 14, this.REP_BAR_Y + 6, 'REPUTATION', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '11px',
+        fontSize: '10.5px',
         fontStyle: 'bold',
         color: '#d6d3d1',
       })
       .setOrigin(0, 0.5);
-    this.add(repLabel);
+    this.add(this.repLabel);
 
     const repTrack = this.scene.add.graphics();
     repTrack.fillStyle(0x140d0b, 1);
@@ -361,6 +362,13 @@ export class TopHud extends BaseEntity {
     }
 
     this.repValueText.setText(`${clamped}/100`);
+    if (clamped >= 80) {
+      this.repLabel.setText('🔥 VIRAL 1.25x').setColor('#4ade80');
+    } else if (clamped < 30) {
+      this.repLabel.setText('⚠️ LOW REP').setColor('#f87171');
+    } else {
+      this.repLabel.setText('REPUTATION').setColor('#d6d3d1');
+    }
   }
 
   private syncDayDisplay(): void {

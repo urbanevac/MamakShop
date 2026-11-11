@@ -33,6 +33,15 @@ export interface ShiftSummary {
   tipsEarned: number;
   wasteCount: number;
   wastePenalty: number;
+  starsEarned?: number;
+  starBonusCash?: number;
+}
+
+export interface ShiftStarEvaluation {
+  stars: number;
+  bonusCash: number;
+  targets: [boolean, boolean, boolean];
+  targetLabels: [string, string, string];
 }
 
 export interface GameStateSnapshot {
@@ -47,6 +56,8 @@ export interface GameStateSnapshot {
   maxCustomers: number;
   griddleCapacity: number;
   hasAneHelper: boolean;
+  hasTurboKuali: boolean;
+  hasTermosAir: boolean;
   unlockedRecipes: RecipeId[];
   stationStatus: Record<string, StationSlot>;
   comboStreak: number;
@@ -103,6 +114,8 @@ export class GameStateStore {
       maxCustomers: 2,
       griddleCapacity: 1,
       hasAneHelper: false,
+      hasTurboKuali: false,
+      hasTermosAir: false,
       unlockedRecipes: ['teh_tarik', 'roti_canai'],
       stationStatus: {
         teh_station_1: {
@@ -151,6 +164,8 @@ export class GameStateStore {
         maxCustomers: this.state.maxCustomers,
         griddleCapacity: this.state.griddleCapacity,
         hasAneHelper: this.state.hasAneHelper,
+        hasTurboKuali: this.state.hasTurboKuali,
+        hasTermosAir: this.state.hasTermosAir,
         unlockedRecipes: this.state.unlockedRecipes,
         shiftStats: this.state.shiftStats,
         lastCompletedShift: this.state.lastCompletedShift,
@@ -183,6 +198,12 @@ export class GameStateStore {
       }
       if (typeof parsed.hasAneHelper === 'boolean') {
         this.state.hasAneHelper = parsed.hasAneHelper;
+      }
+      if (typeof parsed.hasTurboKuali === 'boolean') {
+        this.state.hasTurboKuali = parsed.hasTurboKuali;
+      }
+      if (typeof parsed.hasTermosAir === 'boolean') {
+        this.state.hasTermosAir = parsed.hasTermosAir;
       }
       if (Array.isArray(parsed.unlockedRecipes)) {
         this.state.unlockedRecipes = parsed.unlockedRecipes;
@@ -363,10 +384,16 @@ export class GameStateStore {
       if (this.state.comboStreak >= 3) {
         comboBonus = Math.min(2.5, (this.state.comboStreak - 2) * 0.5);
       }
+      // Every 3x streak milestone restores +2 Reputation so skilled play recovers low Rep
+      if (this.state.comboStreak % 3 === 0) {
+        this.adjustReputation(2);
+      }
       this.emit('comboChanged', this.state.comboStreak);
     }
 
-    const totalTip = Math.round((tipAmount + comboBonus) * 100) / 100;
+    // Viral Kedai perk (Rep >= 80): 1.25x bonus on all tips & combo bonuses!
+    const repTipMultiplier = this.state.reputation >= 80 ? 1.25 : 1.0;
+    const totalTip = Math.round((tipAmount + comboBonus) * repTipMultiplier * 100) / 100;
     const totalEarned = Math.round((basePrice + totalTip) * 100) / 100;
 
     this.state.shiftStats.revenueEarned =
@@ -379,6 +406,38 @@ export class GameStateStore {
 
     this.addCash(totalEarned);
     return totalEarned;
+  }
+
+  public evaluateShiftStars(
+    summary: ShiftSummary,
+    tierLevel = this.state.tier.level
+  ): ShiftStarEvaluation {
+    const serveGoal = 4 + tierLevel;
+    const profitGoal = 20 * tierLevel;
+    const netProfit =
+      summary.revenueEarned + summary.tipsEarned - summary.wastePenalty;
+
+    const t1 = summary.servedCount >= serveGoal;
+    const t2 = netProfit >= profitGoal;
+    const t3 =
+      summary.servedCount >= 1 &&
+      summary.walkoutsCount === 0 &&
+      summary.wasteCount === 0;
+
+    const stars = (t1 ? 1 : 0) + (t2 ? 1 : 0) + (t3 ? 1 : 0);
+    const bonusTable = [0, 8, 18, 35];
+    const bonusCash = summary.starBonusCash ?? bonusTable[stars] ?? 0;
+
+    return {
+      stars: summary.starsEarned ?? stars,
+      bonusCash,
+      targets: [t1, t2, t3],
+      targetLabels: [
+        `Serve ${serveGoal}+`,
+        `Net RM${profitGoal}+`,
+        `0 Walkout/Waste`,
+      ],
+    };
   }
 
   public recordWalkout(): void {
@@ -412,7 +471,25 @@ export class GameStateStore {
     return cashPenalty;
   }
 
-  // --- Kedai Upgrades ---
+  // --- Kedai & Equipment Upgrades ---
+
+  public upgradeTermosAir(): boolean {
+    if (this.state.hasTermosAir) return false;
+    if (!this.deductCash(100)) return false;
+    this.state.hasTermosAir = true;
+    this.emit('tierChanged', { ...this.state.tier });
+    this.notifyChange();
+    return true;
+  }
+
+  public upgradeTurboKuali(): boolean {
+    if (this.state.hasTurboKuali) return false;
+    if (!this.deductCash(120)) return false;
+    this.state.hasTurboKuali = true;
+    this.emit('tierChanged', { ...this.state.tier });
+    this.notifyChange();
+    return true;
+  }
 
   public upgradeToTier2(): boolean {
     if (this.state.tier.level >= 2) return false;
@@ -465,8 +542,17 @@ export class GameStateStore {
 
     if (this.state.dayElapsedSeconds >= this.state.dayDurationSeconds) {
       const completedDay = this.state.day;
-      const summary: ShiftSummary = { ...this.state.shiftStats, day: completedDay };
+      const rawSummary: ShiftSummary = { ...this.state.shiftStats, day: completedDay };
+      const starEval = this.evaluateShiftStars(rawSummary, this.state.tier.level);
+      const summary: ShiftSummary = {
+        ...rawSummary,
+        starsEarned: starEval.stars,
+        starBonusCash: starEval.bonusCash,
+      };
       this.state.lastCompletedShift = summary;
+      if (starEval.bonusCash > 0) {
+        this.addCash(starEval.bonusCash);
+      }
 
       this.state.dayElapsedSeconds %= this.state.dayDurationSeconds;
       this.state.day += 1;
