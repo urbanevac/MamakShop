@@ -18,7 +18,7 @@ interface GriddleSlotState {
 
 export interface PrepStationCallbacks {
   canAddToServingTray: () => boolean;
-  canAneAutoBrewDrink: () => boolean;
+  canAutoBrewDrink: () => boolean;
   onPlateItem: (recipeId: RecipeId, isPadu?: boolean) => boolean;
   onStationMessage: (x: number, y: number, text: string, color: string) => void;
   getNeededDrinkRecipe: () => RecipeId;
@@ -50,17 +50,17 @@ export class PrepStationDock extends BaseEntity {
   private readonly callbacks: PrepStationCallbacks;
   private unsubscribers: Array<() => void> = [];
 
-  // --- 1. Drinks Station (Teh Tarik + Milo Ais + Ane Helper) ---
+  // --- 1. Drinks Station (Teh Tarik + Milo Ais + Shop Helper) ---
   private selectedDrinkRecipe: RecipeId = 'teh_tarik';
   private demandCounts: Partial<Record<RecipeId, number>> = {};
   private demandKey = '';
   private tehStage: TehTarikStage = 'idle';
   private tehFillElapsedMs = 0;
   private readonly TEH_FILL_DURATION_MS = 1500;
-  private aneAutoCooldownMs = 600;
+  private helperAutoCooldownMs = 600;
 
   private drinkPillsContainer!: Phaser.GameObjects.Container;
-  private aneHelperBadge!: Phaser.GameObjects.Text;
+  private shopHelperBadge!: Phaser.GameObjects.Text;
   private kettleContainer!: Phaser.GameObjects.Container;
   private cupContainer!: Phaser.GameObjects.Container;
   private cupVisualGfx!: Phaser.GameObjects.Graphics;
@@ -76,8 +76,8 @@ export class PrepStationDock extends BaseEntity {
   private readonly ROTI_BURN_DURATION_MS = 3000;
   /** Tutorial mode doubles the flip window so new players aren't punished while learning. */
   private burnMultiplier = 1;
-  /** Suspends the Ane Helper auto-brewer (used during the tutorial). */
-  private aneSuspended = false;
+  /** Suspends the Shop Helper auto-brewer (used during the tutorial). */
+  private helperSuspended = false;
   /** Tracks which griddle slots already fired the "about to burn" haptic. */
   private burnWarned: [boolean, boolean] = [false, false];
 
@@ -159,10 +159,10 @@ export class PrepStationDock extends BaseEntity {
     this.callbacks.onStationEvent?.(event);
   }
 
-  /** Enables the forgiving tutorial mode: slower burn, Ane Helper off, default recipes selected. */
+  /** Enables the forgiving tutorial mode: slower burn, Shop Helper off, default recipes selected. */
   public setTutorialMode(active: boolean): void {
     this.burnMultiplier = active ? 2 : 1;
-    this.aneSuspended = active;
+    this.helperSuspended = active;
     if (active) {
       this.selectedDrinkRecipe = 'teh_tarik';
       this.selectedFoodRecipe = 'roti_canai';
@@ -228,9 +228,9 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
     this.add(headerTitle);
 
-    // Ane Helper badge mounted cleanly inside the top-left of the yellow dock header bar
-    this.aneHelperBadge = this.scene.add
-      .text(22, this.DOCK_Y + 15, '🤖 ANE AUTO', {
+    // Shop Helper badge mounted cleanly inside the top-left of the yellow dock header bar
+    this.shopHelperBadge = this.scene.add
+      .text(22, this.DOCK_Y + 15, '🤖 SHOP HELPER', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '8.5px',
         fontStyle: 'bold',
@@ -240,7 +240,7 @@ export class PrepStationDock extends BaseEntity {
       })
       .setOrigin(0, 0.5)
       .setVisible(false);
-    this.add(this.aneHelperBadge);
+    this.add(this.shopHelperBadge);
   }
 
   /**
@@ -559,12 +559,12 @@ export class PrepStationDock extends BaseEntity {
     this.add(this.tehStatusText);
   }
 
-  private handleKettleTap(fromAne = false): void {
+  private handleKettleTap(fromHelper = false): void {
     if (this.tehStage !== 'idle') return;
 
     this.tehStage = 'filling';
     this.tehFillElapsedMs = 0;
-    if (!fromAne) {
+    if (!fromHelper) {
       haptic(HAPTIC.tap, 'tap');
       this.emitStationEvent('kettle_tapped');
     }
@@ -578,11 +578,11 @@ export class PrepStationDock extends BaseEntity {
     this.syncTehVisuals();
   }
 
-  private handleCupTap(fromAne = false): void {
+  private handleCupTap(fromHelper = false): void {
     if (this.tehStage !== 'filled') return;
 
     if (!this.callbacks.canAddToServingTray()) {
-      if (!fromAne) haptic(HAPTIC.reject, 'trayFull');
+      if (!fromHelper) haptic(HAPTIC.reject, 'trayFull');
       this.callbacks.onStationMessage(
         this.cupContainer.x,
         this.cupContainer.y - 30,
@@ -592,7 +592,7 @@ export class PrepStationDock extends BaseEntity {
       return;
     }
 
-    if (!fromAne) haptic(HAPTIC.tap, 'tap');
+    if (!fromHelper) haptic(HAPTIC.tap, 'tap');
     this.tehStage = 'pulling';
     this.syncTehVisuals();
 
@@ -618,7 +618,7 @@ export class PrepStationDock extends BaseEntity {
           );
           this.tehStage = 'idle';
           this.tehFillElapsedMs = 0;
-          if (!fromAne) this.emitStationEvent('drink_plated');
+          if (!fromHelper) this.emitStationEvent('drink_plated');
         } else {
           this.tehStage = 'filled';
         }
@@ -631,7 +631,7 @@ export class PrepStationDock extends BaseEntity {
     const state = this.store.getState();
     const def = getRecipeDef(this.selectedDrinkRecipe);
 
-    this.aneHelperBadge.setVisible(state.hasAneHelper);
+    this.shopHelperBadge.setVisible(state.hasShopHelper);
 
     this.cupVisualGfx.clear();
     this.tehStreamGfx.clear();
@@ -695,14 +695,14 @@ export class PrepStationDock extends BaseEntity {
       const pourSec = (fillDurMs / 1000).toFixed(1);
       this.tehStatusText
         .setText(
-          state.hasAneHelper
-            ? '🤖 Ane Helper Smart-Brew ON'
+          state.hasShopHelper
+            ? '🤖 Shop Helper Smart-Brew ON'
             : state.hasTermosAir
             ? `🫖 Termos ON • Tap Kettle (${pourSec}s)`
             : `1. Tap Kettle to fill (${pourSec}s)`
         )
         .setColor(
-          state.hasAneHelper || state.hasTermosAir ? '#4ade80' : '#cbd5e1'
+          state.hasShopHelper || state.hasTermosAir ? '#4ade80' : '#cbd5e1'
         );
     } else if (this.tehStage === 'filling') {
       this.kettleBadge
@@ -1154,19 +1154,19 @@ export class PrepStationDock extends BaseEntity {
   public updateEntity(_time: number, delta: number): void {
     const state = this.store.getState();
 
-    // --- Smart Ane Helper ---
-    if (state.hasAneHelper && !this.aneSuspended) {
-      if (this.tehStage === 'idle' && this.callbacks.canAneAutoBrewDrink()) {
-        this.aneAutoCooldownMs -= delta;
-        if (this.aneAutoCooldownMs <= 0) {
+    // --- Smart Shop Helper ---
+    if (state.hasShopHelper && !this.helperSuspended) {
+      if (this.tehStage === 'idle' && this.callbacks.canAutoBrewDrink()) {
+        this.helperAutoCooldownMs -= delta;
+        if (this.helperAutoCooldownMs <= 0) {
           this.selectedDrinkRecipe = this.callbacks.getNeededDrinkRecipe();
           this.rebuildRecipePills();
           this.handleKettleTap(true);
-          this.aneAutoCooldownMs = 500;
+          this.helperAutoCooldownMs = 500;
         }
       } else if (
         this.tehStage === 'filled' &&
-        this.callbacks.canAneAutoBrewDrink()
+        this.callbacks.canAutoBrewDrink()
       ) {
         this.handleCupTap(true);
       }

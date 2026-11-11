@@ -76,7 +76,7 @@ export class TutorialCoach extends BaseEntity {
       welcome: {
         target: 'none',
         text:
-          'Welcome to your stall, boss! 🙏\nFirst day on the job, let Ane show you the ropes lah. Look — got one customer ordering Teh Tarik already!',
+          'Welcome to your stall, boss! 🙏\nFirst day on the job, let your Shop Helper show you the ropes lah. Look — got one customer ordering Teh Tarik already!',
         next: 'kettle',
         onEnter: () => this.host.spawnTutorialCustomer(0, 'teh_tarik'),
       },
@@ -396,7 +396,7 @@ export class TutorialCoach extends BaseEntity {
     const bubbleX = (GAME_WIDTH - bubbleW) / 2;
     const padX = 16;
 
-    const header = this.scene.add.text(bubbleX + padX, 0, '☕ ANE SAYS:', {
+    const header = this.scene.add.text(bubbleX + padX, 0, '☕ SHOP HELPER:', {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '10px',
       fontStyle: 'bold',

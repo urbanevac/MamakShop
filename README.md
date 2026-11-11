@@ -45,7 +45,7 @@ Open the **`🏪 UPGRADE`** modal anytime from the Top HUD or automatically at t
 | :--- | :--- | :--- | :--- |
 | **Tier 1** | **Gerai Tepi Jalan** | *Starter* | • Roadside stall with checkered yellow awning & 2 red plastic stools<br>• Max **2** waiting customers & **1** griddle slot<br>• Menu: **Teh Tarik** (`RM 2.50`), **Roti Canai** (`RM 3.00`) |
 | **Tier 2** | **Kedai Bawah Pokok** | **RM 300** | • Canopy stall under a shady tropical tree with **4 plastic tables**<br>• Increases max waiting customers from **2 → 4**<br>• Unlocks **Milo Ais** (`RM 3.50`) & **Maggi Goreng** (`RM 6.00`)<br>• **Doubles griddle capacity** (`SLOT 1` & `SLOT 2` — cook 2 dishes at once) |
-| **Tier 3** | **Corner Lot Mamak** | **RM 1,200** | • Bright 24-hour shophouse corner lot with football flags & live TV (`⚽ LIVE 2-1`)<br>• Unlocks **Roti Telur** (`RM 4.50`) & **Nasi Kandar** (`RM 9.50`)<br>• Unlocks **🤖 Ane Helper** (smart auto-brews requested drinks without clogging all 3 tray slots) |
+| **Tier 3** | **Corner Lot Mamak** | **RM 1,200** | • Bright 24-hour shophouse corner lot with football flags & live TV (`⚽ LIVE 2-1`)<br>• Unlocks **Roti Telur** (`RM 4.50`) & **Nasi Kandar** (`RM 9.50`)<br>• Unlocks **🤖 Shop Helper** (smart auto-brews requested drinks without clogging all 3 tray slots) |
 
 ---
 

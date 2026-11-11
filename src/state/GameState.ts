@@ -55,7 +55,7 @@ export interface GameStateSnapshot {
   tier: TierInfo;
   maxCustomers: number;
   griddleCapacity: number;
-  hasAneHelper: boolean;
+  hasShopHelper: boolean;
   hasTurboKuali: boolean;
   hasTermosAir: boolean;
   unlockedRecipes: RecipeId[];
@@ -113,7 +113,7 @@ export class GameStateStore {
       },
       maxCustomers: 2,
       griddleCapacity: 1,
-      hasAneHelper: false,
+      hasShopHelper: false,
       hasTurboKuali: false,
       hasTermosAir: false,
       unlockedRecipes: ['teh_tarik', 'roti_canai'],
@@ -163,7 +163,7 @@ export class GameStateStore {
         tier: this.state.tier,
         maxCustomers: this.state.maxCustomers,
         griddleCapacity: this.state.griddleCapacity,
-        hasAneHelper: this.state.hasAneHelper,
+        hasShopHelper: this.state.hasShopHelper,
         hasTurboKuali: this.state.hasTurboKuali,
         hasTermosAir: this.state.hasTermosAir,
         unlockedRecipes: this.state.unlockedRecipes,
@@ -196,8 +196,10 @@ export class GameStateStore {
       if (typeof parsed.griddleCapacity === 'number') {
         this.state.griddleCapacity = parsed.griddleCapacity;
       }
-      if (typeof parsed.hasAneHelper === 'boolean') {
-        this.state.hasAneHelper = parsed.hasAneHelper;
+      if (typeof parsed.hasShopHelper === 'boolean') {
+        this.state.hasShopHelper = parsed.hasShopHelper;
+      } else if (typeof parsed.hasAneHelper === 'boolean') {
+        this.state.hasShopHelper = parsed.hasAneHelper;
       }
       if (typeof parsed.hasTurboKuali === 'boolean') {
         this.state.hasTurboKuali = parsed.hasTurboKuali;
@@ -538,7 +540,7 @@ export class GameStateStore {
       level: 3,
       name: 'Corner Lot Mamak',
     };
-    this.state.hasAneHelper = true;
+    this.state.hasShopHelper = true;
 
     this.unlockItem('roti_telur');
     this.unlockItem('nasi_kandar');

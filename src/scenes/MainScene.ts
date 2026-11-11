@@ -116,7 +116,7 @@ export class MainScene extends Phaser.Scene {
     // Bottom Interactive Prep Station Dock
     this.prepDock = new PrepStationDock(this, gameState, {
       canAddToServingTray: () => this.servingTray.some((slot) => slot === null),
-      canAneAutoBrewDrink: () => this.shouldAneAutoBrewDrink(),
+      canAutoBrewDrink: () => this.shouldAutoBrewDrink(),
       onPlateItem: (recipeId, isPadu) => this.addItemToServingTray(recipeId, isPadu),
       onStationMessage: (x, y, text, color) => this.showPopup(x, y, text, color),
       getNeededDrinkRecipe: () => this.findNeededDrinkRecipe(),
@@ -281,11 +281,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Smart Ane Helper logic:
+   * Smart Shop Helper logic:
    * - Never fills the last empty tray slot with an unrequested drink (prevents Tray Deadlock).
    * - Caps drinks on the tray to at most 2 slots so at least 1 slot is always free for food.
    */
-  private shouldAneAutoBrewDrink(): boolean {
+  private shouldAutoBrewDrink(): boolean {
     const emptyCount = this.servingTray.filter((s) => s === null).length;
     if (emptyCount === 0) return false;
 

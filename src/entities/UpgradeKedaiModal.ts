@@ -386,7 +386,7 @@ export class UpgradeKedaiModal extends BaseEntity {
       [
         '• Bright shophouse corner lot w/ football banners',
         '• Unlocks Roti Telur (RM 4.50) & Nasi Kandar (RM 9.50)',
-        '• Unlocks "Ane Helper" (smart auto-brews requested',
+        '• Unlocks "Shop Helper" (smart auto-brews requested',
         '  drinks directly onto the Serving Tray!)',
       ].join('\n'),
       {
