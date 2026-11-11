@@ -52,6 +52,10 @@ export interface GameStateSnapshot {
   comboStreak: number;
   shiftStats: ShiftSummary;
   lastCompletedShift: ShiftSummary | null;
+  /** First-shift "Hari Pertama" guided tutorial has been completed or skipped */
+  tutorialDone: boolean;
+  /** Vibration feedback on supported mobile devices */
+  hapticsEnabled: boolean;
 }
 
 export interface GameStateEvents {
@@ -65,6 +69,7 @@ export interface GameStateEvents {
   recipeUnlocked: (recipeId: RecipeId, unlockedRecipes: RecipeId[]) => void;
   stationUpdated: (slot: StationSlot, allStations: Record<string, StationSlot>) => void;
   comboChanged: (streak: number) => void;
+  gameReset: () => void;
 }
 
 type AnyListener = (...args: any[]) => void;
@@ -128,6 +133,8 @@ export class GameStateStore {
         wastePenalty: 0,
       },
       lastCompletedShift: null,
+      tutorialDone: false,
+      hapticsEnabled: true,
     };
   }
 
@@ -147,6 +154,8 @@ export class GameStateStore {
         unlockedRecipes: this.state.unlockedRecipes,
         shiftStats: this.state.shiftStats,
         lastCompletedShift: this.state.lastCompletedShift,
+        tutorialDone: this.state.tutorialDone,
+        hapticsEnabled: this.state.hapticsEnabled,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -188,6 +197,12 @@ export class GameStateStore {
       if (parsed.lastCompletedShift) {
         this.state.lastCompletedShift = parsed.lastCompletedShift;
       }
+      // Existing saves from before the tutorial existed are treated as experienced players
+      this.state.tutorialDone =
+        typeof parsed.tutorialDone === 'boolean' ? parsed.tutorialDone : true;
+      if (typeof parsed.hapticsEnabled === 'boolean') {
+        this.state.hapticsEnabled = parsed.hapticsEnabled;
+      }
     } catch {
       // Ignore malformed storage
     }
@@ -201,12 +216,29 @@ export class GameStateStore {
     } catch {
       // Ignore
     }
+    const keepHaptics = this.state.hapticsEnabled;
     this.state = this.createDefaultState();
+    this.state.hapticsEnabled = keepHaptics;
     this.emit('cashChanged', this.state.cash, 0);
     this.emit('reputationChanged', this.state.reputation, 0);
     this.emit('dayChanged', this.state.day);
     this.emit('tierChanged', { ...this.state.tier });
     this.emit('comboChanged', 0);
+    this.notifyChange();
+    this.emit('gameReset');
+  }
+
+  // --- Player Settings ---
+
+  public setTutorialDone(done: boolean): void {
+    if (this.state.tutorialDone === done) return;
+    this.state.tutorialDone = done;
+    this.notifyChange();
+  }
+
+  public setHapticsEnabled(enabled: boolean): void {
+    if (this.state.hapticsEnabled === enabled) return;
+    this.state.hapticsEnabled = enabled;
     this.notifyChange();
   }
 

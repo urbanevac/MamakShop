@@ -4,6 +4,7 @@ import { GameStateStore, RecipeId } from '../state/GameState';
 import { Customer } from './Customer';
 import { getRecipeDef } from '../config/recipes';
 import { GAME_WIDTH } from '../config/constants';
+import { haptic, HAPTIC } from '../utils/haptics';
 
 export type TehTarikStage = 'idle' | 'filling' | 'filled' | 'pulling';
 export type RotiCanaiStage = 'idle' | 'cooking' | 'ready_to_flip' | 'cooked' | 'burned';
@@ -20,6 +21,27 @@ export interface PrepStationCallbacks {
   onPlateItem: (recipeId: RecipeId) => boolean;
   onStationMessage: (x: number, y: number, text: string, color: string) => void;
   getNeededDrinkRecipe: () => RecipeId;
+  /** Gameplay milestones consumed by the first-shift tutorial. */
+  onStationEvent?: (event: StationEvent) => void;
+}
+
+export type StationEvent =
+  | 'kettle_tapped'
+  | 'drink_filled'
+  | 'drink_plated'
+  | 'dough_tapped'
+  | 'roti_ready_to_flip'
+  | 'roti_flipped'
+  | 'roti_burned'
+  | 'food_plated';
+
+export type StationTarget = 'kettle' | 'cup' | 'dough' | 'griddle';
+
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export class PrepStationDock extends BaseEntity {
@@ -49,6 +71,12 @@ export class PrepStationDock extends BaseEntity {
   private selectedFoodRecipe: RecipeId = 'roti_canai';
   private readonly ROTI_COOK_DURATION_MS = 3000;
   private readonly ROTI_BURN_DURATION_MS = 3000;
+  /** Tutorial mode doubles the flip window so new players aren't punished while learning. */
+  private burnMultiplier = 1;
+  /** Suspends the Ane Helper auto-brewer (used during the tutorial). */
+  private aneSuspended = false;
+  /** Tracks which griddle slots already fired the "about to burn" haptic. */
+  private burnWarned: [boolean, boolean] = [false, false];
 
   private griddleSlots: [GriddleSlotState, GriddleSlotState] = [
     { stage: 'idle', timerMs: 0, recipeId: 'roti_canai' },
@@ -101,6 +129,45 @@ export class PrepStationDock extends BaseEntity {
     this.rebuildRecipePills();
     this.syncTehVisuals();
     this.syncRotiVisuals();
+  }
+
+  // =========================================================================
+  // Tutorial / UX helpers
+  // =========================================================================
+
+  private get burnDurationMs(): number {
+    return this.ROTI_BURN_DURATION_MS * this.burnMultiplier;
+  }
+
+  private emitStationEvent(event: StationEvent): void {
+    this.callbacks.onStationEvent?.(event);
+  }
+
+  /** Enables the forgiving tutorial mode: slower burn, Ane Helper off, default recipes selected. */
+  public setTutorialMode(active: boolean): void {
+    this.burnMultiplier = active ? 2 : 1;
+    this.aneSuspended = active;
+    if (active) {
+      this.selectedDrinkRecipe = 'teh_tarik';
+      this.selectedFoodRecipe = 'roti_canai';
+      this.rebuildRecipePills();
+    }
+    this.syncTehVisuals();
+    this.syncRotiVisuals();
+  }
+
+  /** World-space rectangle of an interactive station card (for tutorial spotlights). */
+  public getTargetRect(target: StationTarget): ScreenRect {
+    switch (target) {
+      case 'kettle':
+        return { x: 26, y: 592, w: 156, h: 66 };
+      case 'cup':
+        return { x: 26, y: 673, w: 156, h: 78 };
+      case 'dough':
+        return { x: 208, y: 592, w: 156, h: 66 };
+      case 'griddle':
+        return { x: 208, y: 673, w: 156, h: 78 };
+    }
   }
 
   private buildDockShell(): void {
@@ -386,11 +453,15 @@ export class PrepStationDock extends BaseEntity {
     this.add(this.tehStatusText);
   }
 
-  private handleKettleTap(): void {
+  private handleKettleTap(fromAne = false): void {
     if (this.tehStage !== 'idle') return;
 
     this.tehStage = 'filling';
     this.tehFillElapsedMs = 0;
+    if (!fromAne) {
+      haptic(HAPTIC.tap, 'tap');
+      this.emitStationEvent('kettle_tapped');
+    }
 
     this.scene.tweens.add({
       targets: this.kettleContainer,
@@ -401,19 +472,21 @@ export class PrepStationDock extends BaseEntity {
     this.syncTehVisuals();
   }
 
-  private handleCupTap(): void {
+  private handleCupTap(fromAne = false): void {
     if (this.tehStage !== 'filled') return;
 
     if (!this.callbacks.canAddToServingTray()) {
+      if (!fromAne) haptic(HAPTIC.reject, 'trayFull');
       this.callbacks.onStationMessage(
         this.cupContainer.x,
         this.cupContainer.y - 30,
-        'Serving Tray Full (Max 3)!',
+        'Tray full lah, boss! (Max 3)',
         '#f87171'
       );
       return;
     }
 
+    if (!fromAne) haptic(HAPTIC.tap, 'tap');
     this.tehStage = 'pulling';
     this.syncTehVisuals();
 
@@ -439,6 +512,7 @@ export class PrepStationDock extends BaseEntity {
           );
           this.tehStage = 'idle';
           this.tehFillElapsedMs = 0;
+          if (!fromAne) this.emitStationEvent('drink_plated');
         } else {
           this.tehStage = 'filled';
         }
@@ -700,13 +774,18 @@ export class PrepStationDock extends BaseEntity {
       }
     }
 
-    if (targetSlotIdx === -1) return;
+    if (targetSlotIdx === -1) {
+      haptic(HAPTIC.reject, 'griddleFull');
+      return;
+    }
 
+    haptic(HAPTIC.tap, 'tap');
     this.griddleSlots[targetSlotIdx] = {
       stage: 'cooking',
       timerMs: 0,
       recipeId: this.selectedFoodRecipe,
     };
+    this.emitStationEvent('dough_tapped');
 
     this.scene.tweens.add({
       targets: this.doughContainer,
@@ -725,6 +804,7 @@ export class PrepStationDock extends BaseEntity {
     if (slot.stage === 'ready_to_flip') {
       slot.stage = 'cooked';
       slot.timerMs = 0;
+      haptic(HAPTIC.tap, 'tap');
       this.scene.tweens.add({
         targets: container,
         scaleY: 1.08,
@@ -734,19 +814,21 @@ export class PrepStationDock extends BaseEntity {
       this.callbacks.onStationMessage(
         container.x,
         container.y - 26,
-        'Flipped! Tap to Plate w/ Dhal',
+        'Nice flip! Tap again to plate',
         '#facc15'
       );
       this.syncRotiVisuals();
+      this.emitStationEvent('roti_flipped');
       return;
     }
 
     if (slot.stage === 'cooked') {
       if (!this.callbacks.canAddToServingTray()) {
+        haptic(HAPTIC.reject, 'trayFull');
         this.callbacks.onStationMessage(
           container.x,
           container.y - 30,
-          'Serving Tray Full (Max 3)!',
+          'Tray full lah, boss! (Max 3)',
           '#f87171'
         );
         return;
@@ -755,6 +837,7 @@ export class PrepStationDock extends BaseEntity {
       const def = getRecipeDef(slot.recipeId);
       const plated = this.callbacks.onPlateItem(slot.recipeId);
       if (plated) {
+        haptic(HAPTIC.tap, 'tap');
         this.callbacks.onStationMessage(
           container.x,
           container.y - 25,
@@ -764,6 +847,7 @@ export class PrepStationDock extends BaseEntity {
         slot.stage = 'idle';
         slot.timerMs = 0;
         this.syncRotiVisuals();
+        this.emitStationEvent('food_plated');
       }
       return;
     }
@@ -869,7 +953,7 @@ export class PrepStationDock extends BaseEntity {
       } else if (slot.stage === 'ready_to_flip') {
         const burnRem = Math.max(
           0,
-          1 - slot.timerMs / this.ROTI_BURN_DURATION_MS
+          1 - slot.timerMs / this.burnDurationMs
         );
         gfx.fillStyle(0xfacc15, 1);
         gfx.fillCircle(panX, panY, panR - 4);
@@ -911,7 +995,7 @@ export class PrepStationDock extends BaseEntity {
     if (flipping) {
       const sec = Math.max(
         0,
-        (this.ROTI_BURN_DURATION_MS - flipping.timerMs) / 1000
+        (this.burnDurationMs - flipping.timerMs) / 1000
       ).toFixed(1);
       this.rotiStatusText
         .setText(`⚠️ FLIP NOW! Burns in ${sec}s`)
@@ -935,20 +1019,20 @@ export class PrepStationDock extends BaseEntity {
     const state = this.store.getState();
 
     // --- Smart Ane Helper ---
-    if (state.hasAneHelper) {
+    if (state.hasAneHelper && !this.aneSuspended) {
       if (this.tehStage === 'idle' && this.callbacks.canAneAutoBrewDrink()) {
         this.aneAutoCooldownMs -= delta;
         if (this.aneAutoCooldownMs <= 0) {
           this.selectedDrinkRecipe = this.callbacks.getNeededDrinkRecipe();
           this.rebuildRecipePills();
-          this.handleKettleTap();
+          this.handleKettleTap(true);
           this.aneAutoCooldownMs = 500;
         }
       } else if (
         this.tehStage === 'filled' &&
         this.callbacks.canAneAutoBrewDrink()
       ) {
-        this.handleCupTap();
+        this.handleCupTap(true);
       }
     }
 
@@ -957,6 +1041,7 @@ export class PrepStationDock extends BaseEntity {
       if (this.tehFillElapsedMs >= this.TEH_FILL_DURATION_MS) {
         this.tehFillElapsedMs = this.TEH_FILL_DURATION_MS;
         this.tehStage = 'filled';
+        this.emitStationEvent('drink_filled');
       }
       this.syncTehVisuals();
     }
@@ -970,19 +1055,28 @@ export class PrepStationDock extends BaseEntity {
         if (slot.timerMs >= this.ROTI_COOK_DURATION_MS) {
           slot.stage = 'ready_to_flip';
           slot.timerMs = 0;
+          this.burnWarned[i] = false;
+          this.emitStationEvent('roti_ready_to_flip');
         }
         rotiChanged = true;
       } else if (slot.stage === 'ready_to_flip') {
         slot.timerMs += delta;
-        if (slot.timerMs >= this.ROTI_BURN_DURATION_MS) {
+        // Buzz once when the last second of the flip window begins
+        if (!this.burnWarned[i] && this.burnDurationMs - slot.timerMs <= 1000) {
+          this.burnWarned[i] = true;
+          haptic(HAPTIC.burnWarning, 'burnWarning');
+        }
+        if (slot.timerMs >= this.burnDurationMs) {
           slot.stage = 'burned';
           slot.timerMs = 0;
+          haptic(HAPTIC.burned, 'burned');
           this.callbacks.onStationMessage(
             this.griddleSlotContainers[i].x,
             this.griddleSlotContainers[i].y - 25,
-            '🔥 Dish Burned!',
+            '🔥 Alamak, burnt already!',
             '#f87171'
           );
+          this.emitStationEvent('roti_burned');
         }
         rotiChanged = true;
       }

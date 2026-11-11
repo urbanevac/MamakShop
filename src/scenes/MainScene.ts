@@ -2,11 +2,14 @@ import Phaser from 'phaser';
 import { gameState, RecipeId } from '../state/GameState';
 import { TopHud } from '../entities/TopHud';
 import { Customer, CustomerArchetype } from '../entities/Customer';
-import { FoodTrayItem } from '../entities/FoodTrayItem';
-import { PrepStationDock } from '../entities/PrepStationDock';
+import { FoodTrayItem, ServeResult } from '../entities/FoodTrayItem';
+import { PrepStationDock, ScreenRect } from '../entities/PrepStationDock';
 import { UpgradeKedaiModal } from '../entities/UpgradeKedaiModal';
+import { PauseOverlay } from '../entities/PauseOverlay';
+import { TutorialCoach, TutorialEvent } from '../entities/TutorialCoach';
 import { getRecipeDef } from '../config/recipes';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config/constants';
+import { haptic, HAPTIC } from '../utils/haptics';
 
 interface SeatPosition {
   seatIndex: number;
@@ -41,6 +44,11 @@ export class MainScene extends Phaser.Scene {
   private topHud!: TopHud;
   private prepDock!: PrepStationDock;
   private upgradeModal!: UpgradeKedaiModal;
+  private pauseOverlay!: PauseOverlay;
+  private tutorial: TutorialCoach | null = null;
+  private isPaused = false;
+  private previewTarget: Customer | null = null;
+  private unsubscribers: Array<() => void> = [];
 
   private customers: Array<Customer | null> = [null, null, null, null];
   private servingTray: Array<FoodTrayItem | null> = [null, null, null];
@@ -53,13 +61,27 @@ export class MainScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Reset per-run fields (the constructor only runs once; scene.restart() re-runs create())
+    this.customers = [null, null, null, null];
+    this.servingTray = [null, null, null];
+    this.spawnCooldownMs = 600;
+    this.isPaused = false;
+    this.tutorial = null;
+    this.previewTarget = null;
+    this.unsubscribers = [];
+
     this.envContainer = this.add.container(0, 0);
     this.drawEnvironmentForTier(gameState.getState().tier.level);
 
-    // Top HUD with "🏪 UPGRADE" Shop button
-    this.topHud = new TopHud(this, gameState, () => {
-      this.upgradeModal.open();
-    });
+    // Top HUD with "🏪 UPGRADE" Shop button and ⏸ Pause button
+    this.topHud = new TopHud(
+      this,
+      gameState,
+      () => {
+        this.upgradeModal.open();
+      },
+      () => this.pauseGame(false)
+    );
     this.topHud.setDepth(30);
 
     // Bottom Interactive Prep Station Dock
@@ -69,34 +91,143 @@ export class MainScene extends Phaser.Scene {
       onPlateItem: (recipeId) => this.addItemToServingTray(recipeId),
       onStationMessage: (x, y, text, color) => this.showPopup(x, y, text, color),
       getNeededDrinkRecipe: () => this.findNeededDrinkRecipe(),
+      onStationEvent: (event) => this.emitTutorialEvent(event),
     });
     this.prepDock.setDepth(20);
 
     // "Upgrade Kedai" Modal Overlay (opens via Shop button or at end of each 90s shift)
     this.upgradeModal = new UpgradeKedaiModal(this, gameState);
 
+    // "Rehat Jap" Pause Overlay
+    this.pauseOverlay = new PauseOverlay(this, gameState, {
+      onResume: () => this.resumeGame(),
+      onReplayTutorial: () => {
+        gameState.setTutorialDone(false);
+        this.scene.restart();
+      },
+    });
+
     // React to Tier Upgrades (update background visuals & seat layout)
-    gameState.on('tierChanged', (tier) => {
-      this.drawEnvironmentForTier(tier.level);
-      this.repositionExistingCustomers();
-      this.showPopup(
-        GAME_WIDTH / 2,
-        240,
-        `🎉 Upgraded to ${tier.name}!`,
-        '#facc15'
-      );
+    this.unsubscribers.push(
+      gameState.on('tierChanged', (tier) => {
+        this.drawEnvironmentForTier(tier.level);
+        this.repositionExistingCustomers();
+        this.showPopup(
+          GAME_WIDTH / 2,
+          240,
+          `🎉 Upgraded to ${tier.name}!`,
+          '#facc15'
+        );
+      }),
+
+      // Automatically open "Upgrade Kedai" modal with Shift Receipt at the end of each shift
+      gameState.on('shiftEnded', (completedDay, nextDay, summary) => {
+        this.upgradeModal.open(
+          `🌙 Day ${completedDay} Shift Complete! Ready for Day ${nextDay}`,
+          summary
+        );
+      }),
+
+      // Fresh save → restart the scene so the stall, customers and tutorial start clean
+      gameState.on('gameReset', () => {
+        this.time.delayedCall(60, () => this.scene.restart());
+      })
+    );
+
+    // Auto-pause when the tab / app goes to the background (phone call, app switch...)
+    const onHidden = () => this.pauseGame(true);
+    this.game.events.on(Phaser.Core.Events.HIDDEN, onHidden);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.HIDDEN, onHidden);
+      this.unsubscribers.forEach((u) => u());
+      this.unsubscribers = [];
     });
 
-    // Automatically open "Upgrade Kedai" modal with Shift Receipt at the end of each shift
-    gameState.on('shiftEnded', (completedDay, nextDay, summary) => {
-      this.upgradeModal.open(
-        `🌙 Day ${completedDay} Shift Complete! Ready for Day ${nextDay}`,
-        summary
-      );
-    });
+    if (!gameState.getState().tutorialDone) {
+      this.startTutorial();
+    } else {
+      // Spawn first customer immediately
+      this.spawnCustomerInSeat(0);
+    }
+  }
 
-    // Spawn first customer immediately
-    this.spawnCustomerInSeat(0);
+  // ===========================================================================
+  // Pause / Resume
+  // ===========================================================================
+
+  private pauseGame(autoPaused: boolean): void {
+    if (this.isPaused) return;
+    // The upgrade modal already freezes the game; don't stack overlays on top of it
+    if (this.upgradeModal?.visible) return;
+    this.isPaused = true;
+    this.clearPreviewTarget();
+    this.pauseOverlay.open(autoPaused);
+  }
+
+  private resumeGame(): void {
+    if (!this.isPaused) return;
+    this.isPaused = false;
+    this.pauseOverlay.close();
+  }
+
+  // ===========================================================================
+  // "Hari Pertama" Tutorial
+  // ===========================================================================
+
+  private startTutorial(): void {
+    this.prepDock.setTutorialMode(true);
+    this.tutorial = new TutorialCoach(this, {
+      getTargetRect: (target) => this.getTutorialTargetRect(target),
+      getServePath: () => this.getTutorialServePath(),
+      spawnTutorialCustomer: (seatIndex, order) => {
+        if (this.customers[seatIndex]) return;
+        const cust = this.spawnCustomerInSeat(seatIndex, [order], 'regular');
+        if (cust) cust.patienceFrozen = true;
+      },
+      finishTutorial: () => this.finishTutorial(),
+    });
+  }
+
+  private finishTutorial(): void {
+    this.tutorial = null;
+    gameState.setTutorialDone(true);
+    this.prepDock.setTutorialMode(false);
+    this.customers.forEach((c) => {
+      if (c) c.patienceFrozen = false;
+    });
+    this.spawnCooldownMs = 900;
+  }
+
+  private emitTutorialEvent(event: TutorialEvent): void {
+    this.tutorial?.handleEvent(event);
+  }
+
+  private getTutorialTargetRect(target: string): ScreenRect {
+    if (target === 'trash') {
+      return { x: TRASH_BIN_POS.x - 32, y: TRASH_BIN_POS.y - 30, w: 64, h: 60 };
+    }
+    if (target === 'pause') {
+      return this.topHud.getPauseButtonRect();
+    }
+    return this.prepDock.getTargetRect(target as 'kettle' | 'cup' | 'dough' | 'griddle');
+  }
+
+  private getTutorialServePath(): { from: { x: number; y: number }; to: { x: number; y: number } } | null {
+    const seats = this.getActiveSeats();
+    for (const item of this.servingTray) {
+      if (!item) continue;
+      for (const cust of this.customers) {
+        if (!cust || !cust.remainingItems.includes(item.recipeId)) continue;
+        const seat = seats[cust.seatIndex];
+        if (!seat) continue;
+        return {
+          from: { x: SERVING_TRAY_SLOTS[item.trayIndex].x, y: SERVING_TRAY_SLOTS[item.trayIndex].y },
+          to: { x: seat.x, y: seat.y - 20 },
+        };
+      }
+    }
+    return null;
   }
 
   private getActiveSeats(): SeatPosition[] {
@@ -511,13 +642,19 @@ export class MainScene extends Phaser.Scene {
       recipeId,
       pos.x,
       pos.y,
-      (item, px, py, wasClick) => this.tryFulfillOrDiscardOrder(item, px, py, wasClick),
-      (item, px, py, isDragging) =>
-        this.updateCustomerDropHighlights(item, px, py, isDragging)
+      {
+        onServeAttempt: (item, px, py, wasClick) =>
+          this.tryFulfillOrDiscardOrder(item, px, py, wasClick),
+        onDragHover: (item, px, py, isDragging) =>
+          this.updateCustomerDropHighlights(item, px, py, isDragging),
+        onPressPreview: (item, active) =>
+          this.updatePressPreview(item, active),
+      }
     );
     trayItem.setDepth(25);
     this.servingTray[emptyIdx] = trayItem;
     this.updateTrayHeaderCount();
+    this.syncMatchHints();
     return true;
   }
 
@@ -526,6 +663,74 @@ export class MainScene extends Phaser.Scene {
     this.trayHeaderText.setText(
       `SERVING TRAY (${count}/3 PLATED) • DRAG TO SERVE OR 🗑️`
     );
+  }
+
+  /**
+   * Recomputes which plated tray items match which seated customers:
+   * - Customers get colored match dots on their speech bubble rows matching the tray slot color.
+   * - Plated tray items with no matching customer get an amber "❓ TAKDE ORDER" tag.
+   */
+  private syncMatchHints(): void {
+    const activeCustomers = this.customers.filter(
+      (c): c is Customer =>
+        c !== null && (c.customerState === 'waiting' || c.customerState === 'walking_in')
+    );
+
+    // 1. Update each tray item's "no order" tag
+    for (const item of this.servingTray) {
+      if (!item) continue;
+      const someoneWantsIt = activeCustomers.some((cust) =>
+        cust.remainingItems.includes(item.recipeId)
+      );
+      item.setNoOrder(!someoneWantsIt);
+    }
+
+    // 2. Update each customer's speech bubble match dots
+    for (const cust of this.customers) {
+      if (!cust) continue;
+      const map: Partial<Record<RecipeId, number[]>> = {};
+      for (const item of this.servingTray) {
+        if (!item) continue;
+        if (cust.remainingItems.includes(item.recipeId)) {
+          const list = map[item.recipeId] ?? [];
+          list.push(item.slotColor);
+          map[item.recipeId] = list;
+        }
+      }
+      cust.setMatchColors(map);
+    }
+  }
+
+  private findTapServeTarget(recipeId: RecipeId): Customer | null {
+    let target: Customer | null = null;
+    let lowestPatience = Infinity;
+    for (const cust of this.customers) {
+      if (cust && cust.canAcceptRecipe(recipeId)) {
+        const pat = cust.getPatienceRatio();
+        if (pat < lowestPatience) {
+          lowestPatience = pat;
+          target = cust;
+        }
+      }
+    }
+    return target;
+  }
+
+  private updatePressPreview(item: FoodTrayItem, active: boolean): void {
+    this.clearPreviewTarget();
+    if (!active) return;
+    const target = this.findTapServeTarget(item.recipeId);
+    if (target) {
+      this.previewTarget = target;
+      target.setHighlight(true);
+    }
+  }
+
+  private clearPreviewTarget(): void {
+    if (this.previewTarget) {
+      this.previewTarget.setHighlight(false);
+      this.previewTarget = null;
+    }
   }
 
   private updateCustomerDropHighlights(
@@ -573,12 +778,15 @@ export class MainScene extends Phaser.Scene {
   private discardTrayItemWithPenalty(item: FoodTrayItem): void {
     const def = getRecipeDef(item.recipeId);
     const cashPenalty = gameState.recordDiscardedFood(def.price, 1);
+    haptic(HAPTIC.discard, 'discard');
 
     if (this.servingTray[item.trayIndex] === item) {
       this.servingTray[item.trayIndex] = null;
     }
     item.destroy();
     this.updateTrayHeaderCount();
+    this.syncMatchHints();
+    this.emitTutorialEvent('discarded');
 
     this.showPopup(
       TRASH_BIN_POS.x - 45,
@@ -593,7 +801,7 @@ export class MainScene extends Phaser.Scene {
     pointerX: number,
     pointerY: number,
     wasClick: boolean
-  ): boolean {
+  ): ServeResult {
     // 1. Check if dragged onto the Trash Bin
     if (!wasClick) {
       const trashDist = Phaser.Math.Distance.Between(
@@ -604,42 +812,75 @@ export class MainScene extends Phaser.Scene {
       );
       if (trashDist < 55) {
         this.discardTrayItemWithPenalty(item);
-        return true;
+        return 'served';
       }
     }
 
     // 2. Check customer order fulfillment
     let targetCustomer: Customer | null = null;
+    let nearestCustomer: Customer | null = null;
+    let nearestDist = Infinity;
 
     if (!wasClick) {
       for (const cust of this.customers) {
-        if (!cust || !cust.canAcceptRecipe(item.recipeId)) continue;
+        if (!cust || cust.customerState !== 'waiting') continue;
         const dist = Phaser.Math.Distance.Between(
           pointerX,
           pointerY,
           cust.x,
           cust.y - 20
         );
-        if (dist < 105) {
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestCustomer = cust;
+        }
+        if (dist < 105 && cust.canAcceptRecipe(item.recipeId)) {
           targetCustomer = cust;
           break;
         }
       }
     } else {
-      let lowestPatience = Infinity;
-      for (const cust of this.customers) {
-        if (cust && cust.canAcceptRecipe(item.recipeId)) {
-          const pat = cust.getPatienceRatio();
-          if (pat < lowestPatience) {
-            lowestPatience = pat;
-            targetCustomer = cust;
-          }
-        }
-      }
+      targetCustomer = this.findTapServeTarget(item.recipeId);
     }
 
     if (!targetCustomer) {
-      return false;
+      const def = getRecipeDef(item.recipeId);
+      if (wasClick) {
+        // Check if someone is walking in who wants this item vs nobody at all
+        const walkingInWants = this.customers.some(
+          (c) =>
+            c &&
+            c.customerState === 'walking_in' &&
+            c.remainingItems.includes(item.recipeId)
+        );
+        haptic(HAPTIC.reject, 'reject');
+        this.showPopup(
+          item.x,
+          item.y - 44,
+          walkingInWants
+            ? `Wait ah boss, customer still sitting down! 😅`
+            : `Nobody ordered ${def.shortName} lah, boss! 🤷`,
+          '#fbbf24'
+        );
+        return 'rejected';
+      }
+
+      // Dragged onto a specific customer who ordered something else
+      if (nearestCustomer && nearestDist < 105) {
+        const wantedNames = nearestCustomer.remainingItems
+          .map((id) => getRecipeDef(id).shortName)
+          .join(' + ');
+        haptic(HAPTIC.reject, 'wrongCustomer');
+        this.showPopup(
+          nearestCustomer.x,
+          nearestCustomer.y - 75,
+          `Eh, this customer ordered ${wantedNames} lah! 😅`,
+          '#fbbf24'
+        );
+        return 'rejected';
+      }
+
+      return 'cancel';
     }
 
     if (this.servingTray[item.trayIndex] === item) {
@@ -649,7 +890,9 @@ export class MainScene extends Phaser.Scene {
     this.updateTrayHeaderCount();
 
     targetCustomer.serveItem(item.recipeId);
-    return true;
+    this.syncMatchHints();
+    this.emitTutorialEvent('served');
+    return 'served';
   }
 
   /**
@@ -657,39 +900,50 @@ export class MainScene extends Phaser.Scene {
    * - Morning: Breakfast Rush (Teh Tarik & Roti Canai bias)
    * - Evening/Night: Supper & Bola Live Rush (higher Bola Fan & Tapau Rider chance)
    */
-  private spawnCustomerInSeat(seatIndex: number): void {
+  private spawnCustomerInSeat(
+    seatIndex: number,
+    forcedOrder?: RecipeId[],
+    forcedArchetype?: CustomerArchetype
+  ): Customer | null {
     const seats = this.getActiveSeats();
-    if (seatIndex >= seats.length || this.customers[seatIndex] !== null) return;
+    if (seatIndex >= seats.length || this.customers[seatIndex] !== null) return null;
 
     const seat = seats[seatIndex];
     const state = gameState.getState();
     const unlocked = state.unlockedRecipes;
-    if (unlocked.length === 0) return;
+    if (unlocked.length === 0) return null;
 
-    // Choose Customer Archetype based on time of day
-    const roll = Math.random();
-    let archetype: CustomerArchetype = 'regular';
-    if (state.isNight) {
-      if (roll < 0.32) archetype = 'bola_fan';
-      else if (roll < 0.52) archetype = 'tapau_rider';
-    } else {
-      if (roll < 0.22) archetype = 'tapau_rider';
-      else if (roll < 0.32) archetype = 'bola_fan';
+    // Choose Customer Archetype based on time of day (unless forced by tutorial)
+    let archetype: CustomerArchetype = forcedArchetype ?? 'regular';
+    if (!forcedArchetype) {
+      const roll = Math.random();
+      if (state.isNight) {
+        if (roll < 0.32) archetype = 'bola_fan';
+        else if (roll < 0.52) archetype = 'tapau_rider';
+      } else {
+        if (roll < 0.22) archetype = 'tapau_rider';
+        else if (roll < 0.32) archetype = 'bola_fan';
+      }
     }
 
-    // Bola fans usually order 2 items (drink + food); Tapau riders order 1 quick item
-    const orderCount =
-      archetype === 'bola_fan'
-        ? 2
-        : archetype === 'tapau_rider'
-        ? 1
-        : Math.random() < 0.25
-        ? 2
-        : 1;
+    let requested: RecipeId[];
+    if (forcedOrder && forcedOrder.length > 0) {
+      requested = [...forcedOrder];
+    } else {
+      // Bola fans usually order 2 items (drink + food); Tapau riders order 1 quick item
+      const orderCount =
+        archetype === 'bola_fan'
+          ? 2
+          : archetype === 'tapau_rider'
+          ? 1
+          : Math.random() < 0.25
+          ? 2
+          : 1;
 
-    const requested: RecipeId[] = [];
-    for (let i = 0; i < orderCount; i++) {
-      requested.push(this.pickPhaseWeightedRecipe(unlocked, state.phase));
+      requested = [];
+      for (let i = 0; i < orderCount; i++) {
+        requested.push(this.pickPhaseWeightedRecipe(unlocked, state.phase));
+      }
     }
 
     const customer = new Customer(
@@ -725,6 +979,12 @@ export class MainScene extends Phaser.Scene {
           }
 
           const streak = gameState.getState().comboStreak;
+          if (streak >= 3) {
+            haptic(HAPTIC.combo, 'combo');
+          } else {
+            haptic(HAPTIC.serve, 'serve');
+          }
+
           const extraLabel =
             streak >= 3
               ? ` 🔥${streak}x!`
@@ -738,16 +998,20 @@ export class MainScene extends Phaser.Scene {
             `+RM ${totalEarned.toFixed(2)}${extraLabel}`,
             '#4ade80'
           );
+          this.syncMatchHints();
         },
         onTimeout: (cust) => {
+          haptic(HAPTIC.walkout, 'walkout');
           gameState.recordWalkout();
-          this.showPopup(cust.x, cust.y - 75, 'Walked Out! Rep -5', '#f87171');
+          this.showPopup(cust.x, cust.y - 75, 'Walked out lah! Rep -5', '#f87171');
+          this.syncMatchHints();
         },
         onExited: (cust) => {
           if (this.customers[cust.seatIndex] === cust) {
             this.customers[cust.seatIndex] = null;
           }
           cust.destroy();
+          this.syncMatchHints();
         },
       },
       archetype
@@ -758,6 +1022,8 @@ export class MainScene extends Phaser.Scene {
       customer.setScale(0.78);
     }
     this.customers[seatIndex] = customer;
+    this.syncMatchHints();
+    return customer;
   }
 
   private pickPhaseWeightedRecipe(
@@ -806,17 +1072,24 @@ export class MainScene extends Phaser.Scene {
   }
 
   override update(time: number, delta: number): void {
-    if (this.upgradeModal && this.upgradeModal.visible) {
+    if (this.isPaused || (this.upgradeModal && this.upgradeModal.visible)) {
       return;
     }
 
-    this.topHud.updateEntity(time, delta);
+    const tutorialActive = Boolean(this.tutorial && this.tutorial.isActive);
+    if (!tutorialActive) {
+      this.topHud.updateEntity(time, delta);
+    }
     this.prepDock.updateEntity(time, delta);
 
     const state = gameState.getState();
     const maxCust = state.maxCustomers;
     for (let i = 0; i < maxCust; i++) {
       this.customers[i]?.updateEntity(time, delta);
+    }
+
+    if (tutorialActive) {
+      return;
     }
 
     let emptySeatIndex = -1;

@@ -47,6 +47,12 @@ export class Customer extends BaseEntity {
   private readonly shirtColor: number;
   private readonly skinColor: number;
 
+  /** When true (e.g. during the tutorial), patience does not drain. */
+  public patienceFrozen = false;
+  /** Tray slot colours currently holding each requested recipe (drawn as dots on the bubble). */
+  private matchColors: Partial<Record<RecipeId, number[]>> = {};
+  private matchKey = '';
+
   constructor(
     scene: Phaser.Scene,
     seatIndex: number,
@@ -369,6 +375,46 @@ export class Customer extends BaseEntity {
         this.bubbleItemsContainer.add(label);
       });
     }
+
+    this.drawMatchDots(rows, bubbleW, isSamePair);
+  }
+
+  /**
+   * Draws coloured dots on the right edge of each bubble row, one per tray slot that
+   * currently holds that recipe, so players can see "Tray 2 → this customer" at a glance.
+   */
+  private drawMatchDots(rows: number, bubbleW: number, isSamePair: boolean): void {
+    const rowRecipes: RecipeId[] =
+      rows === 1 || isSamePair ? [this.remainingItems[0]] : [...this.remainingItems];
+
+    rowRecipes.forEach((recipeId, idx) => {
+      const colors = this.matchColors[recipeId] ?? [];
+      if (colors.length === 0) return;
+      const rowY = rows === 1 ? 0 : idx === 0 ? -13 : 13;
+      const dots = this.scene.add.graphics();
+      colors.slice(0, 3).forEach((color, i) => {
+        const dy = rowY + (i - (Math.min(colors.length, 3) - 1) / 2) * 9;
+        dots.fillStyle(0x0f172a, 1);
+        dots.fillCircle(bubbleW / 2, dy, 5.5);
+        dots.fillStyle(color, 1);
+        dots.fillCircle(bubbleW / 2, dy, 4);
+      });
+      this.bubbleItemsContainer.add(dots);
+    });
+  }
+
+  /** Updates which tray slot colours match this customer's remaining items (redraws only on change). */
+  public setMatchColors(colors: Partial<Record<RecipeId, number[]>>): void {
+    const key = Object.keys(colors)
+      .sort()
+      .map((k) => `${k}:${(colors[k] ?? []).join(',')}`)
+      .join('|');
+    if (key === this.matchKey) return;
+    this.matchKey = key;
+    this.matchColors = colors;
+    if (this.customerState === 'waiting' || this.customerState === 'walking_in') {
+      this.refreshSpeechBubble();
+    }
   }
 
   /**
@@ -665,6 +711,7 @@ export class Customer extends BaseEntity {
 
   public updateEntity(_time: number, delta: number): void {
     if (this.customerState !== 'waiting') return;
+    if (this.patienceFrozen) return;
 
     this.remainingPatienceMs = Math.max(0, this.remainingPatienceMs - delta);
     this.updatePatienceBarGraphic();

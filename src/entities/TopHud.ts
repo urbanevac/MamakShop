@@ -29,19 +29,27 @@ export class TopHud extends BaseEntity {
   private readonly REP_BAR_HEIGHT = 12;
 
   private readonly onOpenUpgradeModal?: () => void;
+  private readonly onPause?: () => void;
 
   constructor(
     scene: Phaser.Scene,
     store: GameStateStore,
-    onOpenUpgradeModal?: () => void
+    onOpenUpgradeModal?: () => void,
+    onPause?: () => void
   ) {
     super(scene, 0, 0);
     this.store = store;
     this.onOpenUpgradeModal = onOpenUpgradeModal;
+    this.onPause = onPause;
 
     this.buildHud();
     this.bindEvents();
     this.syncAll();
+  }
+
+  /** World-space bounds of the pause button (also used by the tutorial spotlight). */
+  public getPauseButtonRect(): { x: number; y: number; w: number; h: number } {
+    return { x: 240, y: this.HUD_Y + 35, w: 34, h: 28 };
   }
 
   private buildHud(): void {
@@ -119,15 +127,15 @@ export class TopHud extends BaseEntity {
 
     // Shop / Upgrade Kedai Button
     const shopBtn = this.scene.add
-      .rectangle(202, this.HUD_Y + 49, 98, 28, 0xd97706, 1)
+      .rectangle(192, this.HUD_Y + 49, 84, 28, 0xd97706, 1)
       .setStrokeStyle(1.5, 0xfef08a, 0.95)
       .setInteractive({ useHandCursor: true });
     this.add(shopBtn);
 
     const shopBtnLabel = this.scene.add
-      .text(202, this.HUD_Y + 49, '🏪 UPGRADE', {
+      .text(192, this.HUD_Y + 49, '🏪 UPGRADE', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '10.5px',
+        fontSize: '10px',
         fontStyle: 'bold',
         color: '#fffbeb',
       })
@@ -143,6 +151,40 @@ export class TopHud extends BaseEntity {
         yoyo: true,
       });
       this.onOpenUpgradeModal?.();
+    });
+
+    // Pause Button (⏸) — opens the "Rehat Jap" pause overlay
+    const pauseRect = this.getPauseButtonRect();
+    const pauseBtn = this.scene.add
+      .rectangle(
+        pauseRect.x + pauseRect.w / 2,
+        pauseRect.y + pauseRect.h / 2,
+        pauseRect.w,
+        pauseRect.h,
+        0x3f2a1e,
+        1
+      )
+      .setStrokeStyle(1.5, 0xfbbf24, 0.95)
+      .setInteractive({ useHandCursor: true });
+    this.add(pauseBtn);
+
+    const pauseIcon = this.scene.add.graphics();
+    const pcx = pauseRect.x + pauseRect.w / 2;
+    const pcy = pauseRect.y + pauseRect.h / 2;
+    pauseIcon.fillStyle(0xfef3c7, 1);
+    pauseIcon.fillRoundedRect(pcx - 6, pcy - 7, 4, 14, 1.5);
+    pauseIcon.fillRoundedRect(pcx + 2, pcy - 7, 4, 14, 1.5);
+    this.add(pauseIcon);
+
+    pauseBtn.on('pointerdown', () => {
+      this.scene.tweens.add({
+        targets: pauseBtn,
+        scaleX: 0.94,
+        scaleY: 0.94,
+        duration: 70,
+        yoyo: true,
+      });
+      this.onPause?.();
     });
 
     this.dayText = this.scene.add
