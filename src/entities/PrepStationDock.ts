@@ -16,6 +16,7 @@ interface GriddleSlotState {
 
 export interface PrepStationCallbacks {
   canAddToServingTray: () => boolean;
+  canAneAutoBrewDrink: () => boolean;
   onPlateItem: (recipeId: RecipeId) => boolean;
   onStationMessage: (x: number, y: number, text: string, color: string) => void;
   getNeededDrinkRecipe: () => RecipeId;
@@ -33,8 +34,7 @@ export class PrepStationDock extends BaseEntity {
   private readonly TEH_FILL_DURATION_MS = 1500;
   private aneAutoCooldownMs = 600;
 
-  private drinkSelectorBtn!: Phaser.GameObjects.Rectangle;
-  private drinkSelectorText!: Phaser.GameObjects.Text;
+  private drinkPillsContainer!: Phaser.GameObjects.Container;
   private aneHelperBadge!: Phaser.GameObjects.Text;
   private kettleContainer!: Phaser.GameObjects.Container;
   private cupContainer!: Phaser.GameObjects.Container;
@@ -55,8 +55,7 @@ export class PrepStationDock extends BaseEntity {
     { stage: 'idle', timerMs: 0, recipeId: 'roti_canai' },
   ];
 
-  private foodSelectorBtn!: Phaser.GameObjects.Rectangle;
-  private foodSelectorText!: Phaser.GameObjects.Text;
+  private foodPillsContainer!: Phaser.GameObjects.Container;
   private doughContainer!: Phaser.GameObjects.Container;
   private doughBadge!: Phaser.GameObjects.Text;
 
@@ -71,7 +70,7 @@ export class PrepStationDock extends BaseEntity {
   private readonly DOCK_X = 12;
   private readonly DOCK_Y = 516;
   private readonly DOCK_W = GAME_WIDTH - 24;
-  private readonly DOCK_H = 314;
+  private readonly DOCK_H = 316;
 
   constructor(
     scene: Phaser.Scene,
@@ -88,15 +87,18 @@ export class PrepStationDock extends BaseEntity {
 
     this.unsubscribers.push(
       this.store.on('tierChanged', () => {
+        this.rebuildRecipePills();
         this.syncTehVisuals();
         this.syncRotiVisuals();
       }),
       this.store.on('recipeUnlocked', () => {
+        this.rebuildRecipePills();
         this.syncTehVisuals();
         this.syncRotiVisuals();
       })
     );
 
+    this.rebuildRecipePills();
     this.syncTehVisuals();
     this.syncRotiVisuals();
   }
@@ -104,23 +106,29 @@ export class PrepStationDock extends BaseEntity {
   private buildDockShell(): void {
     const bg = this.scene.add.graphics();
 
-    bg.fillStyle(0x1e293b, 0.98);
+    // Outer drop shadow + brushed dark slate stainless steel dock
+    bg.fillStyle(0x090d16, 0.7);
+    bg.fillRoundedRect(this.DOCK_X, this.DOCK_Y + 4, this.DOCK_W, this.DOCK_H, 14);
+
+    bg.fillStyle(0x1e293b, 0.99);
     bg.fillRoundedRect(this.DOCK_X, this.DOCK_Y, this.DOCK_W, this.DOCK_H, 14);
     bg.lineStyle(2.5, 0x94a3b8, 1);
     bg.strokeRoundedRect(this.DOCK_X, this.DOCK_Y, this.DOCK_W, this.DOCK_H, 14);
 
+    // Golden Mamak header bar
     bg.fillStyle(0xfacc15, 1);
-    bg.fillRoundedRect(this.DOCK_X + 2, this.DOCK_Y + 2, this.DOCK_W - 4, 28, {
+    bg.fillRoundedRect(this.DOCK_X + 2, this.DOCK_Y + 2, this.DOCK_W - 4, 26, {
       tl: 12,
       tr: 12,
       bl: 0,
       br: 0,
     });
 
-    bg.lineStyle(2, 0x475569, 0.9);
+    // Center divider between Drink Station and Food Station
+    bg.lineStyle(2, 0x334155, 1);
     bg.lineBetween(
       GAME_WIDTH / 2,
-      this.DOCK_Y + 30,
+      this.DOCK_Y + 28,
       GAME_WIDTH / 2,
       this.DOCK_Y + this.DOCK_H - 6
     );
@@ -128,14 +136,125 @@ export class PrepStationDock extends BaseEntity {
     this.add(bg);
 
     const headerTitle = this.scene.add
-      .text(GAME_WIDTH / 2, this.DOCK_Y + 16, 'PREP STATION DOCK', {
+      .text(GAME_WIDTH / 2, this.DOCK_Y + 15, 'PREP STATION DOCK', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '12px',
+        fontSize: '11.5px',
         fontStyle: 'bold',
         color: '#1c1917',
       })
       .setOrigin(0.5);
     this.add(headerTitle);
+
+    // Ane Helper badge mounted cleanly inside the top-left of the yellow dock header bar
+    this.aneHelperBadge = this.scene.add
+      .text(22, this.DOCK_Y + 15, '🤖 ANE AUTO', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '8.5px',
+        fontStyle: 'bold',
+        color: '#fef08a',
+        backgroundColor: '#15803d',
+        padding: { x: 5, y: 2 },
+      })
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+    this.add(this.aneHelperBadge);
+  }
+
+  /**
+   * Builds thumb-friendly 1-tap Recipe Pills in a dedicated 44px zone (y = 546..586)
+   * with zero overlap against the Kettle or Dough cards below!
+   */
+  private rebuildRecipePills(): void {
+    const unlocked = this.store.getState().unlockedRecipes;
+
+    // 1. Drink Pills (left column center = 104, y = 562)
+    this.drinkPillsContainer.removeAll(true);
+    const drinks = unlocked.filter((id) => getRecipeDef(id).category === 'drink');
+    const drinkPillW = drinks.length === 1 ? 156 : 75;
+
+    drinks.forEach((id, idx) => {
+      const def = getRecipeDef(id);
+      const isSelected = this.selectedDrinkRecipe === id;
+      const px = drinks.length === 1 ? 104 : 104 + (idx === 0 ? -40 : 40);
+      const py = this.DOCK_Y + 46; // 562
+
+      const btn = this.scene.add
+        .rectangle(
+          px,
+          py,
+          drinkPillW,
+          28,
+          isSelected ? 0xd97706 : 0x0f172a,
+          1
+        )
+        .setStrokeStyle(1.5, isSelected ? 0xfef08a : 0x475569, 1)
+        .setInteractive({ useHandCursor: true });
+
+      const txt = this.scene.add
+        .text(px, py, def.shortName, {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '10px',
+          fontStyle: 'bold',
+          color: isSelected ? '#ffffff' : '#94a3b8',
+        })
+        .setOrigin(0.5);
+
+      btn.on('pointerdown', () => {
+        this.selectedDrinkRecipe = id;
+        this.rebuildRecipePills();
+        this.syncTehVisuals();
+      });
+
+      this.drinkPillsContainer.add([btn, txt]);
+    });
+
+    // 2. Food Pills (right column center = 286, y = 554..574)
+    this.foodPillsContainer.removeAll(true);
+    const foods = unlocked.filter((id) => getRecipeDef(id).category === 'food');
+
+    foods.forEach((id, idx) => {
+      const def = getRecipeDef(id);
+      const isSelected = this.selectedFoodRecipe === id;
+
+      let px = 286;
+      let py = this.DOCK_Y + 46; // 562
+      let pillW = 156;
+      let pillH = 28;
+
+      if (foods.length === 2) {
+        pillW = 75;
+        px = 286 + (idx === 0 ? -40 : 40);
+      } else if (foods.length > 2) {
+        pillW = 75;
+        pillH = 20;
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        px = 286 + (col === 0 ? -40 : 40);
+        py = this.DOCK_Y + 37 + row * 22; // Row 0 = 553, Row 1 = 575 (bottom = 585, well above y=592!)
+      }
+
+      const btn = this.scene.add
+        .rectangle(px, py, pillW, pillH, isSelected ? 0xd97706 : 0x0f172a, 1)
+        .setStrokeStyle(1.4, isSelected ? 0xfef08a : 0x475569, 1)
+        .setInteractive({ useHandCursor: true });
+
+      const txt = this.scene.add
+        .text(px, py, def.shortName, {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: foods.length > 2 ? '9px' : '10px',
+          fontStyle: 'bold',
+          color: isSelected ? '#ffffff' : '#94a3b8',
+        })
+        .setOrigin(0.5);
+
+      btn.on('pointerdown', () => {
+        this.selectedFoodRecipe = id;
+        this.rebuildRecipePills();
+        this.syncRotiVisuals();
+      });
+
+      this.foodPillsContainer.add([btn, txt]);
+    });
   }
 
   // =========================================================================
@@ -144,68 +263,43 @@ export class PrepStationDock extends BaseEntity {
 
   private buildTehTarikStation(): void {
     const leftCenterX = 104;
-    const topY = this.DOCK_Y + 36;
 
-    // Recipe selector button (cycles Teh Tarik / Milo Ais when unlocked)
-    this.drinkSelectorBtn = this.scene.add
-      .rectangle(leftCenterX, topY + 12, 154, 22, 0x0f172a, 1)
-      .setStrokeStyle(1, 0xfacc15, 0.85)
-      .setInteractive({ useHandCursor: true });
-    this.add(this.drinkSelectorBtn);
+    this.drinkPillsContainer = this.scene.add.container(0, 0);
+    this.add(this.drinkPillsContainer);
 
-    this.drinkSelectorText = this.scene.add
-      .text(leftCenterX, topY + 12, 'DRINK: TEH TARIK', {
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#fef08a',
-      })
-      .setOrigin(0.5);
-    this.add(this.drinkSelectorText);
-
-    this.drinkSelectorBtn.on('pointerdown', () => {
-      const unlockedDrinks = this.store
-        .getState()
-        .unlockedRecipes.filter((id) => getRecipeDef(id).category === 'drink');
-      if (unlockedDrinks.length <= 1) return;
-      const idx = unlockedDrinks.indexOf(this.selectedDrinkRecipe);
-      this.selectedDrinkRecipe = unlockedDrinks[(idx + 1) % unlockedDrinks.length];
-      this.syncTehVisuals();
-    });
-
-    // Ane Helper Indicator Badge (Tier 3)
-    this.aneHelperBadge = this.scene.add
-      .text(leftCenterX, topY + 29, '🤖 ANE HELPER: AUTO-BREWING', {
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '8.5px',
-        fontStyle: 'bold',
-        color: '#4ade80',
-      })
-      .setOrigin(0.5)
-      .setVisible(false);
-    this.add(this.aneHelperBadge);
-
-    // --- Interactive Element A: Kettle (Logical 104, 616) ---
-    this.kettleContainer = this.scene.add.container(leftCenterX, topY + 64);
+    // --- Interactive Element A: Kettle Card (Logical center 104, 625 — covers y=592..658) ---
+    this.kettleContainer = this.scene.add.container(leftCenterX, 625);
     const kettleHitBg = this.scene.add
-      .rectangle(0, 0, 152, 68, 0x334155, 1)
-      .setStrokeStyle(1.5, 0x94a3b8, 0.9)
+      .rectangle(0, 0, 156, 66, 0x293548, 1)
+      .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     const kettleGfx = this.scene.add.graphics();
+    // 3D button top highlight bevel
+    kettleGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
+    kettleGfx.lineBetween(-74, -31, 74, -31);
+    // Dedicated left icon well (-70..-12) so spout never touches text on the right!
+    kettleGfx.fillStyle(0x0f172a, 0.65);
+    kettleGfx.fillRoundedRect(-70, -25, 58, 50, 8);
+    // Stainless steel tall Mamak tea kettle pot centered at x = -43
     kettleGfx.fillStyle(0xcbd5e1, 1);
-    kettleGfx.fillRoundedRect(-38, -20, 42, 40, 6);
-    kettleGfx.lineStyle(2, 0x475569, 1);
-    kettleGfx.strokeRoundedRect(-38, -20, 42, 40, 6);
-    kettleGfx.lineStyle(4, 0xe2e8f0, 1);
-    kettleGfx.lineBetween(4, 4, 20, -12);
-    kettleGfx.lineStyle(3, 0xfacc15, 1);
-    kettleGfx.strokeRoundedRect(-48, -12, 10, 24, 3);
+    kettleGfx.fillRoundedRect(-57, -16, 30, 34, 5);
+    kettleGfx.fillStyle(0xf8fafc, 0.45);
+    kettleGfx.fillRect(-53, -13, 5, 28);
+    kettleGfx.lineStyle(1.8, 0x475569, 1);
+    kettleGfx.strokeRoundedRect(-57, -16, 30, 34, 5);
+    // Kettle spout pointing right inside the icon well (stops at x = -16)
+    kettleGfx.lineStyle(3.5, 0xe2e8f0, 1);
+    kettleGfx.lineBetween(-27, 4, -17, -10);
+    // Kettle handle on left
+    kettleGfx.lineStyle(2.5, 0xfacc15, 1);
+    kettleGfx.strokeRoundedRect(-64, -10, 7, 20, 2);
+    // Brass lid knob
     kettleGfx.fillStyle(0xf59e0b, 1);
-    kettleGfx.fillCircle(-17, -23, 4);
+    kettleGfx.fillCircle(-42, -19, 3.5);
 
     const kettleLabel = this.scene.add
-      .text(36, -10, '1. KETTLE', {
+      .text(32, -11, '1. KETTLE', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -214,7 +308,7 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.kettleBadge = this.scene.add
-      .text(36, 12, 'TAP TO POUR', {
+      .text(32, 11, 'TAP TO POUR', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
@@ -234,17 +328,17 @@ export class PrepStationDock extends BaseEntity {
     this.tehStreamGfx = this.scene.add.graphics();
     this.add(this.tehStreamGfx);
 
-    // --- Interactive Element B: Tea Cup (Logical 104, 712) ---
-    this.cupContainer = this.scene.add.container(leftCenterX, topY + 158);
+    // --- Interactive Element B: Tea Cup Card (Logical center 104, 712 — covers y=673..751) ---
+    this.cupContainer = this.scene.add.container(leftCenterX, 712);
     const cupHitBg = this.scene.add
-      .rectangle(0, 0, 152, 78, 0x334155, 1)
-      .setStrokeStyle(1.5, 0x94a3b8, 0.9)
+      .rectangle(0, 0, 156, 78, 0x293548, 1)
+      .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     this.cupVisualGfx = this.scene.add.graphics();
 
     const cupLabel = this.scene.add
-      .text(34, -14, '2. TEA CUP', {
+      .text(32, -14, '2. TEA CUP', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -253,7 +347,7 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.cupBadge = this.scene.add
-      .text(34, 12, 'EMPTY', {
+      .text(32, 12, 'EMPTY', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
@@ -273,18 +367,18 @@ export class PrepStationDock extends BaseEntity {
     // Progress bar & status footer
     const barTrack = this.scene.add.graphics();
     barTrack.fillStyle(0x0f172a, 1);
-    barTrack.fillRoundedRect(28, topY + 214, 152, 12, 6);
+    barTrack.fillRoundedRect(26, 764, 156, 12, 6);
     barTrack.lineStyle(1, 0x64748b, 1);
-    barTrack.strokeRoundedRect(28, topY + 214, 152, 12, 6);
+    barTrack.strokeRoundedRect(26, 764, 156, 12, 6);
     this.add(barTrack);
 
     this.tehProgressFill = this.scene.add.graphics();
     this.add(this.tehProgressFill);
 
     this.tehStatusText = this.scene.add
-      .text(leftCenterX, topY + 244, 'Tap Kettle to fill cup (1.5s)', {
+      .text(leftCenterX, 794, '1. Tap Kettle to fill (1.5s)', {
         fontFamily: 'monospace',
-        fontSize: '10px',
+        fontSize: '9.5px',
         fontStyle: 'bold',
         color: '#cbd5e1',
       })
@@ -300,8 +394,8 @@ export class PrepStationDock extends BaseEntity {
 
     this.scene.tweens.add({
       targets: this.kettleContainer,
-      angle: 10,
-      duration: 180,
+      angle: 8,
+      duration: 160,
       yoyo: true,
     });
     this.syncTehVisuals();
@@ -328,11 +422,13 @@ export class PrepStationDock extends BaseEntity {
 
     this.scene.tweens.add({
       targets: this.cupContainer,
-      y: this.cupContainer.y - 12,
-      scaleY: 1.08,
+      y: 700,
+      scaleY: 1.07,
       duration: 140,
       yoyo: true,
       onComplete: () => {
+        this.cupContainer.setPosition(104, 712);
+        this.cupContainer.setScale(1);
         const plated = this.callbacks.onPlateItem(drinkToPlate);
         if (plated) {
           this.callbacks.onStationMessage(
@@ -352,18 +448,9 @@ export class PrepStationDock extends BaseEntity {
   }
 
   private syncTehVisuals(): void {
-    const topY = this.DOCK_Y + 36;
     const state = this.store.getState();
-    const unlockedDrinks = state.unlockedRecipes.filter(
-      (id) => getRecipeDef(id).category === 'drink'
-    );
     const def = getRecipeDef(this.selectedDrinkRecipe);
 
-    this.drinkSelectorText.setText(
-      unlockedDrinks.length > 1
-        ? `🔄 DRINK: ${def.name.toUpperCase()}`
-        : `DRINK: ${def.name.toUpperCase()}`
-    );
     this.aneHelperBadge.setVisible(state.hasAneHelper);
 
     this.cupVisualGfx.clear();
@@ -377,21 +464,27 @@ export class PrepStationDock extends BaseEntity {
         ? 1
         : 0;
 
-    const cx = -28;
+    // 3D top bevel highlight + left icon well inside Tea Cup card
+    this.cupVisualGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
+    this.cupVisualGfx.lineBetween(-74, -37, 74, -37);
+    this.cupVisualGfx.fillStyle(0x0f172a, 0.65);
+    this.cupVisualGfx.fillRoundedRect(-70, -30, 58, 60, 8);
+
+    const cx = -42;
     const cy = 2;
     this.cupVisualGfx.lineStyle(2.5, 0xcbd5e1, 1);
-    this.cupVisualGfx.strokeCircle(cx + 14, cy, 7);
+    this.cupVisualGfx.strokeCircle(cx + 12, cy, 6);
 
     this.cupVisualGfx.fillStyle(0x1e293b, 1);
-    this.cupVisualGfx.fillRoundedRect(cx - 14, cy - 18, 28, 36, 4);
+    this.cupVisualGfx.fillRoundedRect(cx - 13, cy - 17, 26, 34, 4);
 
     const liquidColor =
       this.selectedDrinkRecipe === 'milo_ais' ? 0x3e2723 : 0xc27838;
 
     if (fillRatio > 0) {
-      const liquidH = Math.max(4, 32 * fillRatio);
+      const liquidH = Math.max(4, 30 * fillRatio);
       this.cupVisualGfx.fillStyle(liquidColor, 1);
-      this.cupVisualGfx.fillRoundedRect(cx - 13, cy + 17 - liquidH, 26, liquidH, 3);
+      this.cupVisualGfx.fillRoundedRect(cx - 12, cy + 16 - liquidH, 24, liquidH, 3);
     }
 
     if (this.tehStage === 'filled' || this.tehStage === 'pulling') {
@@ -399,11 +492,15 @@ export class PrepStationDock extends BaseEntity {
         this.selectedDrinkRecipe === 'milo_ais' ? 0x22c55e : 0xfef3c7,
         1
       );
-      this.cupVisualGfx.fillRoundedRect(cx - 15, cy - 20, 30, 7, 3);
+      this.cupVisualGfx.fillRoundedRect(cx - 14, cy - 19, 28, 6, 3);
+      // Warm rising steam lines above full cup
+      this.cupVisualGfx.lineStyle(1.5, 0xf8fafc, 0.55);
+      this.cupVisualGfx.lineBetween(cx - 5, cy - 22, cx - 3, cy - 27);
+      this.cupVisualGfx.lineBetween(cx + 4, cy - 22, cx + 6, cy - 27);
     }
 
     this.cupVisualGfx.lineStyle(2, 0xe2e8f0, 1);
-    this.cupVisualGfx.strokeRoundedRect(cx - 14, cy - 18, 28, 36, 4);
+    this.cupVisualGfx.strokeRoundedRect(cx - 13, cy - 17, 26, 34, 4);
 
     if (this.tehStage === 'idle') {
       this.kettleBadge
@@ -417,10 +514,10 @@ export class PrepStationDock extends BaseEntity {
       this.tehStatusText
         .setText(
           state.hasAneHelper
-            ? 'Ane Helper auto-brewing...'
+            ? '🤖 Ane Helper Smart-Brew ON'
             : '1. Tap Kettle to fill (1.5s)'
         )
-        .setColor('#cbd5e1');
+        .setColor(state.hasAneHelper ? '#4ade80' : '#cbd5e1');
     } else if (this.tehStage === 'filling') {
       this.kettleBadge
         .setText('POURING...')
@@ -432,14 +529,15 @@ export class PrepStationDock extends BaseEntity {
         .setColor('#38bdf8');
       this.tehStatusText.setText(`Filling ${def.shortName}...`).setColor('#38bdf8');
 
+      // Pouring stream connecting kettle spout to cup
       this.tehStreamGfx.lineStyle(4, liquidColor, 0.95);
-      this.tehStreamGfx.lineBetween(76, topY + 88, 76, topY + 144);
+      this.tehStreamGfx.lineBetween(62, 650, 62, 695);
 
       this.tehProgressFill.fillStyle(0x38bdf8, 1);
       this.tehProgressFill.fillRoundedRect(
-        28,
-        topY + 214,
-        Math.max(4, 152 * fillRatio),
+        26,
+        764,
+        Math.max(4, 156 * fillRatio),
         12,
         6
       );
@@ -457,7 +555,7 @@ export class PrepStationDock extends BaseEntity {
         .setColor('#4ade80');
 
       this.tehProgressFill.fillStyle(0x22c55e, 1);
-      this.tehProgressFill.fillRoundedRect(28, topY + 214, 152, 12, 6);
+      this.tehProgressFill.fillRoundedRect(26, 764, 156, 12, 6);
     }
   }
 
@@ -467,55 +565,42 @@ export class PrepStationDock extends BaseEntity {
 
   private buildRotiCanaiStation(): void {
     const rightCenterX = 286;
-    const topY = this.DOCK_Y + 36;
 
-    // Recipe selector button (cycles Roti Canai / Maggi Goreng / Roti Telur / Nasi Kandar)
-    this.foodSelectorBtn = this.scene.add
-      .rectangle(rightCenterX, topY + 12, 154, 22, 0x0f172a, 1)
-      .setStrokeStyle(1, 0xfacc15, 0.85)
-      .setInteractive({ useHandCursor: true });
-    this.add(this.foodSelectorBtn);
+    this.foodPillsContainer = this.scene.add.container(0, 0);
+    this.add(this.foodPillsContainer);
 
-    this.foodSelectorText = this.scene.add
-      .text(rightCenterX, topY + 12, 'DISH: ROTI CANAI', {
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '10px',
-        fontStyle: 'bold',
-        color: '#fef08a',
-      })
-      .setOrigin(0.5);
-    this.add(this.foodSelectorText);
-
-    this.foodSelectorBtn.on('pointerdown', () => {
-      const unlockedFoods = this.store
-        .getState()
-        .unlockedRecipes.filter((id) => getRecipeDef(id).category === 'food');
-      if (unlockedFoods.length <= 1) return;
-      const idx = unlockedFoods.indexOf(this.selectedFoodRecipe);
-      this.selectedFoodRecipe = unlockedFoods[(idx + 1) % unlockedFoods.length];
-      this.syncRotiVisuals();
-    });
-
-    // --- Interactive Element A: Dough / Prep Tray (Logical 286, 616) ---
-    this.doughContainer = this.scene.add.container(rightCenterX, topY + 64);
+    // --- Interactive Element A: Dough / Prep Tray (Logical center 286, 625 — covers y=592..658) ---
+    this.doughContainer = this.scene.add.container(rightCenterX, 625);
     const doughHitBg = this.scene.add
-      .rectangle(0, 0, 152, 68, 0x334155, 1)
-      .setStrokeStyle(1.5, 0x94a3b8, 0.9)
+      .rectangle(0, 0, 156, 66, 0x293548, 1)
+      .setStrokeStyle(1.5, 0x94a3b8, 0.95)
       .setInteractive({ useHandCursor: true });
 
     const doughGfx = this.scene.add.graphics();
+    // 3D top bevel highlight
+    doughGfx.lineStyle(1.5, 0xe2e8f0, 0.35);
+    doughGfx.lineBetween(-74, -31, 74, -31);
+    // Dedicated left icon well (-70..-12) so dough tray never touches "1. DOUGH / PREP" text!
+    doughGfx.fillStyle(0x0f172a, 0.65);
+    doughGfx.fillRoundedRect(-70, -25, 58, 50, 8);
+    // Stainless steel dough tray inside left well (-65..-17)
     doughGfx.fillStyle(0x94a3b8, 1);
-    doughGfx.fillRoundedRect(-64, -18, 54, 36, 6);
-    doughGfx.lineStyle(1.5, 0xe2e8f0, 0.9);
-    doughGfx.strokeRoundedRect(-64, -18, 54, 36, 6);
+    doughGfx.fillRoundedRect(-65, -17, 48, 34, 5);
+    doughGfx.lineStyle(1.4, 0xe2e8f0, 0.9);
+    doughGfx.strokeRoundedRect(-65, -17, 48, 34, 5);
 
+    // 3 glossy oiled dough balls inside tray
     doughGfx.fillStyle(0xfef3c7, 1);
-    doughGfx.fillCircle(-46, -5, 8);
-    doughGfx.fillCircle(-28, -5, 8);
-    doughGfx.fillCircle(-37, 7, 8);
+    doughGfx.fillCircle(-49, -5, 7);
+    doughGfx.fillCircle(-33, -5, 7);
+    doughGfx.fillCircle(-41, 6, 7);
+    doughGfx.lineStyle(1, 0xd97706, 0.85);
+    doughGfx.strokeCircle(-49, -5, 7);
+    doughGfx.strokeCircle(-33, -5, 7);
+    doughGfx.strokeCircle(-41, 6, 7);
 
     const doughLabel = this.scene.add
-      .text(28, -10, '1. DOUGH / PREP', {
+      .text(32, -11, '1. DOUGH / PREP', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -524,7 +609,7 @@ export class PrepStationDock extends BaseEntity {
       .setOrigin(0.5);
 
     this.doughBadge = this.scene.add
-      .text(28, 12, 'TAP DOUGH', {
+      .text(32, 11, 'TAP DOUGH', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '9px',
         fontStyle: 'bold',
@@ -541,12 +626,12 @@ export class PrepStationDock extends BaseEntity {
       this.handleDoughTap();
     });
 
-    // --- Interactive Element B: Griddle Slots (1 in Tier 1, 2 side-by-side in Tier 2+) ---
+    // --- Interactive Element B: Griddle Slots (Logical center y = 712) ---
     for (let i = 0; i < 2; i++) {
-      const slotContainer = this.scene.add.container(rightCenterX, topY + 158);
+      const slotContainer = this.scene.add.container(rightCenterX, 712);
       const hitBg = this.scene.add
-        .rectangle(0, 0, 152, 78, 0x334155, 1)
-        .setStrokeStyle(1.5, 0x94a3b8, 0.9)
+        .rectangle(0, 0, 156, 78, 0x293548, 1)
+        .setStrokeStyle(1.5, 0x94a3b8, 0.95)
         .setInteractive({ useHandCursor: true });
 
       const gfx = this.scene.add.graphics();
@@ -578,9 +663,9 @@ export class PrepStationDock extends BaseEntity {
     }
 
     this.rotiStatusText = this.scene.add
-      .text(rightCenterX, topY + 244, '1. Tap Dough → Griddle', {
+      .text(rightCenterX, 794, '1. Tap Dough → Griddle', {
         fontFamily: 'monospace',
-        fontSize: '10px',
+        fontSize: '9.5px',
         fontStyle: 'bold',
         color: '#cbd5e1',
       })
@@ -591,7 +676,6 @@ export class PrepStationDock extends BaseEntity {
   private handleDoughTap(): void {
     const cap = this.store.getState().griddleCapacity;
 
-    // Find first idle slot (or burned slot to reset) within griddleCapacity
     let targetSlotIdx = -1;
     for (let i = 0; i < cap; i++) {
       if (this.griddleSlots[i].stage === 'idle') {
@@ -602,6 +686,14 @@ export class PrepStationDock extends BaseEntity {
     if (targetSlotIdx === -1) {
       for (let i = 0; i < cap; i++) {
         if (this.griddleSlots[i].stage === 'burned') {
+          const burnedDef = getRecipeDef(this.griddleSlots[i].recipeId);
+          const penalty = this.store.recordDiscardedFood(burnedDef.price, 1);
+          this.callbacks.onStationMessage(
+            this.griddleSlotContainers[i].x,
+            this.griddleSlotContainers[i].y - 25,
+            `🗑️ Burnt Waste -RM ${penalty.toFixed(2)}`,
+            '#f87171'
+          );
           targetSlotIdx = i;
           break;
         }
@@ -677,33 +769,24 @@ export class PrepStationDock extends BaseEntity {
     }
 
     if (slot.stage === 'burned') {
+      const def = getRecipeDef(slot.recipeId);
+      const penalty = this.store.recordDiscardedFood(def.price, 1);
       slot.stage = 'idle';
       slot.timerMs = 0;
       this.callbacks.onStationMessage(
         container.x,
         container.y - 25,
-        'Cleared burnt dish',
-        '#cbd5e1'
+        `🗑️ Burnt Waste -RM ${penalty.toFixed(2)}`,
+        '#f87171'
       );
       this.syncRotiVisuals();
     }
   }
 
   private syncRotiVisuals(): void {
-    const topY = this.DOCK_Y + 36;
     const rightCenterX = 286;
     const state = this.store.getState();
     const cap = state.griddleCapacity;
-
-    const unlockedFoods = state.unlockedRecipes.filter(
-      (id) => getRecipeDef(id).category === 'food'
-    );
-    const selectedDef = getRecipeDef(this.selectedFoodRecipe);
-    this.foodSelectorText.setText(
-      unlockedFoods.length > 1
-        ? `🔄 DISH: ${selectedDef.name.toUpperCase()}`
-        : `DISH: ${selectedDef.name.toUpperCase()}`
-    );
 
     const hasIdleSlot = this.griddleSlots
       .slice(0, cap)
@@ -720,7 +803,6 @@ export class PrepStationDock extends BaseEntity {
         .setColor('#cbd5e1');
     }
 
-    // Layout 1 single wide griddle card (Tier 1) OR 2 side-by-side griddle slots (Tier 2+)
     for (let i = 0; i < 2; i++) {
       const container = this.griddleSlotContainers[i];
       const hitBg = this.griddleSlotHitBgs[i];
@@ -735,28 +817,30 @@ export class PrepStationDock extends BaseEntity {
       }
       container.setVisible(true);
 
-      const cardW = cap === 1 ? 152 : 72;
+      const cardW = cap === 1 ? 156 : 75;
       const cardX =
         cap === 1 ? rightCenterX : rightCenterX + (i === 0 ? -40 : 40);
-      container.setPosition(cardX, topY + 158);
+      container.setPosition(cardX, 712);
       hitBg.setSize(cardW, 78);
 
       gfx.clear();
       bar.clear();
 
-      // Cast-iron pan circle
-      const panX = cap === 1 ? -34 : 0;
-      const panY = cap === 1 ? 0 : -12;
-      const panR = cap === 1 ? 25 : 19;
+      // 3D top bevel highlight
+      gfx.lineStyle(1.5, 0xe2e8f0, 0.35);
+      gfx.lineBetween(-cardW / 2 + 4, -37, cardW / 2 - 4, -37);
 
-      gfx.fillStyle(0x0f172a, 1);
+      const panX = cap === 1 ? -40 : 0;
+      const panY = cap === 1 ? 0 : -13;
+      const panR = cap === 1 ? 24 : 18.5;
+
+      gfx.fillStyle(0x090d16, 1);
       gfx.fillCircle(panX, panY, panR);
       gfx.lineStyle(2, 0x64748b, 1);
       gfx.strokeCircle(panX, panY, panR);
 
-      badge.setPosition(cap === 1 ? 30 : 0, cap === 1 ? 0 : 21);
+      badge.setPosition(cap === 1 ? 30 : 0, cap === 1 ? 0 : 18);
 
-      // Mini progress bar at bottom of slot card
       const barW = cardW - 14;
       const barX = -barW / 2;
       const barY = 30;
@@ -772,6 +856,10 @@ export class PrepStationDock extends BaseEntity {
         const ratio = Math.min(1, slot.timerMs / this.ROTI_COOK_DURATION_MS);
         gfx.fillStyle(0xfef3c7, 1);
         gfx.fillCircle(panX, panY, panR - 5);
+        // Sizzling oil droplets around dough
+        gfx.fillStyle(0xfacc15, 0.85);
+        gfx.fillCircle(panX - 10, panY - 8, 1.8);
+        gfx.fillCircle(panX + 11, panY + 7, 1.8);
         badge
           .setText(`${Math.round(ratio * 100)}%`)
           .setBackgroundColor('#0284c7')
@@ -785,6 +873,8 @@ export class PrepStationDock extends BaseEntity {
         );
         gfx.fillStyle(0xfacc15, 1);
         gfx.fillCircle(panX, panY, panR - 4);
+        gfx.lineStyle(1.5, 0xd97706, 1);
+        gfx.strokeCircle(panX, panY, panR - 8);
         badge
           .setText('FLIP!')
           .setBackgroundColor('#ea580c')
@@ -792,7 +882,7 @@ export class PrepStationDock extends BaseEntity {
         bar.fillStyle(0xf97316, 1);
         bar.fillRoundedRect(barX, barY, Math.max(3, barW * burnRem), 6, 3);
       } else if (slot.stage === 'cooked') {
-        Customer.drawFoodIcon(gfx, slot.recipeId, panX, panY, cap === 1 ? 0.85 : 0.7);
+        Customer.drawFoodIcon(gfx, slot.recipeId, panX, panY, cap === 1 ? 0.82 : 0.68);
         badge
           .setText('PLATE!')
           .setBackgroundColor('#16a34a')
@@ -813,7 +903,6 @@ export class PrepStationDock extends BaseEntity {
       }
     }
 
-    // Status summary text at bottom right
     const activeSlots = this.griddleSlots.slice(0, cap);
     const flipping = activeSlots.find((s) => s.stage === 'ready_to_flip');
     const cooked = activeSlots.find((s) => s.stage === 'cooked');
@@ -845,24 +934,24 @@ export class PrepStationDock extends BaseEntity {
   public updateEntity(_time: number, delta: number): void {
     const state = this.store.getState();
 
-    // --- Ane Helper (Tier 3 Auto-Brews Drinks onto Serving Tray) ---
+    // --- Smart Ane Helper ---
     if (state.hasAneHelper) {
-      if (this.tehStage === 'idle' && this.callbacks.canAddToServingTray()) {
+      if (this.tehStage === 'idle' && this.callbacks.canAneAutoBrewDrink()) {
         this.aneAutoCooldownMs -= delta;
         if (this.aneAutoCooldownMs <= 0) {
           this.selectedDrinkRecipe = this.callbacks.getNeededDrinkRecipe();
+          this.rebuildRecipePills();
           this.handleKettleTap();
           this.aneAutoCooldownMs = 500;
         }
       } else if (
         this.tehStage === 'filled' &&
-        this.callbacks.canAddToServingTray()
+        this.callbacks.canAneAutoBrewDrink()
       ) {
         this.handleCupTap();
       }
     }
 
-    // 1. Update Teh Tarik / Drink fill timer (1.5s)
     if (this.tehStage === 'filling') {
       this.tehFillElapsedMs += delta;
       if (this.tehFillElapsedMs >= this.TEH_FILL_DURATION_MS) {
@@ -872,7 +961,6 @@ export class PrepStationDock extends BaseEntity {
       this.syncTehVisuals();
     }
 
-    // 2. Update Griddle Slots (1 or 2 slots depending on Tier)
     const cap = state.griddleCapacity;
     let rotiChanged = false;
     for (let i = 0; i < cap; i++) {

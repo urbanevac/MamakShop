@@ -9,6 +9,7 @@ export class TopHud extends BaseEntity {
 
   private tierText!: Phaser.GameObjects.Text;
   private cashText!: Phaser.GameObjects.Text;
+  private comboBadge!: Phaser.GameObjects.Text;
   private dayText!: Phaser.GameObjects.Text;
   private phaseBadgeBg!: Phaser.GameObjects.Graphics;
   private phaseText!: Phaser.GameObjects.Text;
@@ -44,7 +45,6 @@ export class TopHud extends BaseEntity {
   }
 
   private buildHud(): void {
-    // Main panel background
     const panel = this.scene.add.graphics();
     panel.fillStyle(0x271914, 0.96);
     panel.fillRoundedRect(
@@ -64,7 +64,6 @@ export class TopHud extends BaseEntity {
     );
     this.add(panel);
 
-    // Top row: Tier Title (left) & Day + Phase badge (right)
     this.tierText = this.scene.add.text(
       this.HUD_X + 14,
       this.HUD_Y + 12,
@@ -78,11 +77,25 @@ export class TopHud extends BaseEntity {
     );
     this.add(this.tierText);
 
+    // Combo Streak Badge (appears at 2+ consecutive serves)
+    this.comboBadge = this.scene.add
+      .text(204, this.HUD_Y + 18, '🔥 3x COMBO', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '9.5px',
+        fontStyle: 'bold',
+        color: '#fef08a',
+        backgroundColor: '#dc2626',
+        padding: { x: 5, y: 2 },
+      })
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.add(this.comboBadge);
+
     this.phaseBadgeBg = this.scene.add.graphics();
     this.add(this.phaseBadgeBg);
 
     this.phaseText = this.scene.add
-      .text(this.HUD_X + this.HUD_WIDTH - 14, this.HUD_Y + 18, '☀️ Morning', {
+      .text(this.HUD_X + this.HUD_WIDTH - 14, this.HUD_Y + 18, '🌅 Morning', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '11px',
         fontStyle: 'bold',
@@ -91,7 +104,6 @@ export class TopHud extends BaseEntity {
       .setOrigin(1, 0.5);
     this.add(this.phaseText);
 
-    // Middle row: Cash (left), UPGRADE KEDAI button (center), Day Counter (right)
     this.cashText = this.scene.add.text(
       this.HUD_X + 14,
       this.HUD_Y + 38,
@@ -148,7 +160,6 @@ export class TopHud extends BaseEntity {
       .setOrigin(1, 0);
     this.add(this.dayText);
 
-    // Mini day-progress bar under DAY text
     const dayBarTrack = this.scene.add.graphics();
     dayBarTrack.fillStyle(0x140d0b, 1);
     dayBarTrack.fillRoundedRect(
@@ -163,7 +174,6 @@ export class TopHud extends BaseEntity {
     this.dayProgressBarFill = this.scene.add.graphics();
     this.add(this.dayProgressBarFill);
 
-    // Bottom row: Reputation label, progress bar, and numeric score
     const repLabel = this.scene.add
       .text(this.HUD_X + 14, this.REP_BAR_Y + 6, 'REPUTATION', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -229,6 +239,9 @@ export class TopHud extends BaseEntity {
       }),
       this.store.on('tierChanged', (tier) => {
         this.tierText.setText(`Tier ${tier.level}: ${tier.name}`);
+      }),
+      this.store.on('comboChanged', (streak) => {
+        this.updateComboDisplay(streak);
       })
     );
   }
@@ -238,7 +251,16 @@ export class TopHud extends BaseEntity {
     this.tierText.setText(`Tier ${state.tier.level}: ${state.tier.name}`);
     this.updateCashDisplay(state.cash);
     this.updateReputationDisplay(state.reputation);
+    this.updateComboDisplay(state.comboStreak);
     this.syncDayDisplay();
+  }
+
+  private updateComboDisplay(streak: number): void {
+    if (streak >= 2) {
+      this.comboBadge.setText(`🔥 ${streak}x STREAK`).setVisible(true);
+    } else {
+      this.comboBadge.setVisible(false);
+    }
   }
 
   private updateCashDisplay(cash: number): void {
@@ -250,12 +272,12 @@ export class TopHud extends BaseEntity {
     const sign = delta > 0 ? '+' : '-';
     const color = delta > 0 ? '#34d399' : '#f87171';
     const floatText = this.scene.add.text(
-      this.cashText.x + this.cashText.width + 8,
-      this.cashText.y + 4,
+      this.cashText.x + 12,
+      this.cashText.y - 10,
       `${sign}RM ${Math.abs(delta).toFixed(2)}`,
       {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '13px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color,
       }
@@ -277,11 +299,11 @@ export class TopHud extends BaseEntity {
     const ratio = clamped / 100;
     const fillWidth = Math.max(0, (this.REP_BAR_WIDTH - 2) * ratio);
 
-    let barColor = 0x22c55e; // Green (good)
+    let barColor = 0x22c55e;
     if (clamped < 35) {
-      barColor = 0xef4444; // Red (critical)
+      barColor = 0xef4444;
     } else if (clamped < 65) {
-      barColor = 0xf59e0b; // Amber (moderate)
+      barColor = 0xf59e0b;
     }
 
     this.repBarFill.clear();
@@ -307,7 +329,6 @@ export class TopHud extends BaseEntity {
     );
     this.dayText.setText(`DAY ${state.day} (${remainingSec}s)`);
 
-    // Update phase badge
     const icon = this.getPhaseIcon(state.phase);
     this.phaseText.setText(`${icon} ${state.phase}`);
 
@@ -325,7 +346,6 @@ export class TopHud extends BaseEntity {
     );
     this.phaseBadgeBg.strokeRoundedRect(badgeX, badgeY, badgeWidth, 20, 6);
 
-    // Update day progress bar fill
     const progress = Math.min(
       1,
       Math.max(0, state.dayElapsedSeconds / state.dayDurationSeconds)

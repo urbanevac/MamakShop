@@ -61,22 +61,21 @@ export class FoodTrayItem extends BaseEntity {
     const def = getRecipeDef(this.recipeId);
     const gfx = this.scene.add.graphics();
 
-    // Stainless steel serving plate base (fits 3 across on the 390px counter)
+    // Compact stainless steel serving plate base (3 slots + Trash bin on the 390px counter)
     gfx.fillStyle(0x94a3b8, 1);
-    gfx.fillRoundedRect(-44, -28, 88, 56, 10);
+    gfx.fillRoundedRect(-41, -28, 82, 56, 10);
     gfx.fillStyle(0xe2e8f0, 1);
-    gfx.fillRoundedRect(-40, -24, 80, 48, 8);
+    gfx.fillRoundedRect(-37, -24, 74, 48, 8);
     gfx.lineStyle(2, 0xfacc15, 0.95);
-    gfx.strokeRoundedRect(-44, -28, 88, 56, 10);
+    gfx.strokeRoundedRect(-41, -28, 82, 56, 10);
 
-    // Draw 2D food graphic (Teh Tarik mug or Roti Canai plated with dhal)
-    Customer.drawFoodIcon(gfx, this.recipeId, 0, -5, 1.05);
+    Customer.drawFoodIcon(gfx, this.recipeId, 0, -5, 1.0);
     this.add(gfx);
 
     const label = this.scene.add
       .text(0, 16, `${def.shortName} (RM${def.price.toFixed(2)})`, {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '8.5px',
+        fontSize: '8px',
         fontStyle: 'bold',
         color: '#0f172a',
       })
@@ -84,9 +83,9 @@ export class FoodTrayItem extends BaseEntity {
     this.add(label);
 
     const badge = this.scene.add
-      .text(0, -34, 'DRAG TO CUSTOMER', {
+      .text(0, -34, 'SERVE / DRAG 🗑️', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '7.5px',
+        fontSize: '7px',
         fontStyle: 'bold',
         color: '#fef08a',
         backgroundColor: '#15803d',
@@ -97,9 +96,9 @@ export class FoodTrayItem extends BaseEntity {
   }
 
   private setupDragAndClick(): void {
-    this.setSize(90, 62);
+    this.setSize(84, 62);
     this.setInteractive(
-      new Phaser.Geom.Rectangle(-45, -31, 90, 62),
+      new Phaser.Geom.Rectangle(-42, -31, 84, 62),
       Phaser.Geom.Rectangle.Contains
     );
     this.scene.input.setDraggable(this);
@@ -129,8 +128,8 @@ export class FoodTrayItem extends BaseEntity {
     this.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       this.onDragHover(this, pointer.x, pointer.y, false);
       const wasClick = !this.isDragging;
-      const served = this.onServeAttempt(this, pointer.x, pointer.y, wasClick);
-      if (!served && this.scene) {
+      const handled = this.onServeAttempt(this, pointer.x, pointer.y, wasClick);
+      if (!handled && this.scene) {
         this.snapBackHome();
       }
     });

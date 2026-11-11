@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { gameState, RecipeId } from '../state/GameState';
 import { TopHud } from '../entities/TopHud';
-import { Customer } from '../entities/Customer';
+import { Customer, CustomerArchetype } from '../entities/Customer';
 import { FoodTrayItem } from '../entities/FoodTrayItem';
 import { PrepStationDock } from '../entities/PrepStationDock';
 import { UpgradeKedaiModal } from '../entities/UpgradeKedaiModal';
@@ -27,11 +27,14 @@ const TIER_2_SEATS: SeatPosition[] = [
   { seatIndex: 3, x: 338, y: 348, spawnX: GAME_WIDTH + 60 },
 ];
 
+// 3 Serving Tray Slots + Trash Bin on the right edge (x = 342)
 const SERVING_TRAY_SLOTS: Array<{ x: number; y: number }> = [
-  { x: 76, y: 458 },
-  { x: 195, y: 458 },
-  { x: 314, y: 458 },
+  { x: 64, y: 458 },
+  { x: 158, y: 458 },
+  { x: 252, y: 458 },
 ];
+
+const TRASH_BIN_POS = { x: 342, y: 458 };
 
 export class MainScene extends Phaser.Scene {
   private envContainer!: Phaser.GameObjects.Container;
@@ -42,6 +45,7 @@ export class MainScene extends Phaser.Scene {
   private customers: Array<Customer | null> = [null, null, null, null];
   private servingTray: Array<FoodTrayItem | null> = [null, null, null];
   private trayHeaderText!: Phaser.GameObjects.Text;
+  private trashBinBg!: Phaser.GameObjects.Rectangle;
   private spawnCooldownMs = 600;
 
   constructor() {
@@ -61,6 +65,7 @@ export class MainScene extends Phaser.Scene {
     // Bottom Interactive Prep Station Dock
     this.prepDock = new PrepStationDock(this, gameState, {
       canAddToServingTray: () => this.servingTray.some((slot) => slot === null),
+      canAneAutoBrewDrink: () => this.shouldAneAutoBrewDrink(),
       onPlateItem: (recipeId) => this.addItemToServingTray(recipeId),
       onStationMessage: (x, y, text, color) => this.showPopup(x, y, text, color),
       getNeededDrinkRecipe: () => this.findNeededDrinkRecipe(),
@@ -82,10 +87,11 @@ export class MainScene extends Phaser.Scene {
       );
     });
 
-    // Automatically open "Upgrade Kedai" modal at the end of each shift
-    gameState.on('shiftEnded', (completedDay, nextDay) => {
+    // Automatically open "Upgrade Kedai" modal with Shift Receipt at the end of each shift
+    gameState.on('shiftEnded', (completedDay, nextDay, summary) => {
       this.upgradeModal.open(
-        `🌙 Day ${completedDay} Shift Complete! Ready for Day ${nextDay}`
+        `🌙 Day ${completedDay} Shift Complete! Ready for Day ${nextDay}`,
+        summary
       );
     });
 
@@ -102,6 +108,7 @@ export class MainScene extends Phaser.Scene {
     const seats = this.getActiveSeats();
     this.customers.forEach((cust, idx) => {
       if (cust && seats[idx]) {
+        cust.setScale(seats.length >= 4 ? 0.78 : 1);
         this.tweens.add({
           targets: cust,
           x: seats[idx].x,
@@ -111,6 +118,38 @@ export class MainScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  /**
+   * Smart Ane Helper logic:
+   * - Never fills the last empty tray slot with an unrequested drink (prevents Tray Deadlock).
+   * - Caps drinks on the tray to at most 2 slots so at least 1 slot is always free for food.
+   */
+  private shouldAneAutoBrewDrink(): boolean {
+    const emptyCount = this.servingTray.filter((s) => s === null).length;
+    if (emptyCount === 0) return false;
+
+    const drinksOnTray = this.servingTray.filter(
+      (s) => s !== null && getRecipeDef(s.recipeId).category === 'drink'
+    ).length;
+
+    // Never exceed 2 drinks on the 3-slot tray
+    if (drinksOnTray >= 2) return false;
+
+    // Check if a waiting customer actually needs a drink right now
+    const unlockedDrinks = gameState
+      .getState()
+      .unlockedRecipes.filter((id) => getRecipeDef(id).category === 'drink');
+    const customerNeedsDrink = this.customers.some(
+      (cust) =>
+        cust &&
+        cust.customerState === 'waiting' &&
+        cust.remainingItems.some((id) => unlockedDrinks.includes(id))
+    );
+
+    // Keep 1 standby drink ready, or up to 2 if customers are actively requesting drinks
+    if (drinksOnTray === 0) return true;
+    return customerNeedsDrink && emptyCount >= 2;
   }
 
   private findNeededDrinkRecipe(): RecipeId {
@@ -129,12 +168,6 @@ export class MainScene extends Phaser.Scene {
     return unlockedDrinks[0] ?? 'teh_tarik';
   }
 
-  /**
-   * Renders the stall background visuals dynamically for Tier 1, Tier 2, or Tier 3:
-   * - Tier 1: "Gerai Tepi Jalan" (Roadside stall with 2 red plastic stools)
-   * - Tier 2: "Kedai Bawah Pokok" (Canopy stall under a shady tree with 4 plastic tables)
-   * - Tier 3: "Corner Lot Mamak" (Bright shophouse corner lot with football banners & Ane Helper)
-   */
   private drawEnvironmentForTier(tierLevel: number): void {
     this.envContainer.removeAll(true);
     const env = this.add.graphics();
@@ -148,7 +181,19 @@ export class MainScene extends Phaser.Scene {
       this.drawTier3CornerLotMamak(env);
     }
 
-    // Stainless Steel Silver Serving Tray Counter (Max capacity: 3 plated items)
+    // Warm tungsten Mamak bulb string lights hanging under the awning
+    const lightY = 172;
+    env.lineStyle(1.2, 0x78350f, 0.7);
+    env.lineBetween(18, lightY - 4, GAME_WIDTH - 18, lightY - 4);
+    for (let i = 0; i < 6; i++) {
+      const lx = 38 + i * 62;
+      env.fillStyle(0xfef08a, 0.22);
+      env.fillCircle(lx, lightY, 10);
+      env.fillStyle(0xfde047, 0.95);
+      env.fillCircle(lx, lightY, 3.2);
+    }
+
+    // Stainless Steel Silver Serving Tray Counter (3 plated slots + 1 Trash Bin)
     const counterY = 396;
     const counterH = 110;
 
@@ -174,9 +219,9 @@ export class MainScene extends Phaser.Scene {
 
     SERVING_TRAY_SLOTS.forEach((pos, idx) => {
       env.fillStyle(0x64748b, 0.65);
-      env.fillRoundedRect(pos.x - 46, pos.y - 30, 92, 60, 10);
+      env.fillRoundedRect(pos.x - 43, pos.y - 30, 86, 60, 10);
       env.lineStyle(1.5, 0xe2e8f0, 0.75);
-      env.strokeRoundedRect(pos.x - 46, pos.y - 30, 92, 60, 10);
+      env.strokeRoundedRect(pos.x - 43, pos.y - 30, 86, 60, 10);
 
       const slotTxt = this.add
         .text(pos.x, pos.y, `TRAY ${idx + 1}`, {
@@ -190,12 +235,51 @@ export class MainScene extends Phaser.Scene {
       this.envContainer.add(slotTxt);
     });
 
+    // --- Trash / Discard Bin on Right Side of Counter (Logical 342, 458) ---
+    this.trashBinBg = this.add
+      .rectangle(TRASH_BIN_POS.x, TRASH_BIN_POS.y, 64, 60, 0x450a0a, 0.9)
+      .setStrokeStyle(1.5, 0xf87171, 0.9)
+      .setInteractive({ useHandCursor: true });
+    this.envContainer.add(this.trashBinBg);
+
+    const trashIcon = this.add
+      .text(TRASH_BIN_POS.x, TRASH_BIN_POS.y - 8, '🗑️', {
+        fontSize: '18px',
+      })
+      .setOrigin(0.5);
+    const trashLabel = this.add
+      .text(TRASH_BIN_POS.x, TRASH_BIN_POS.y + 15, 'DISCARD\n(-50% RM)', {
+        fontFamily: 'monospace',
+        fontSize: '8px',
+        fontStyle: 'bold',
+        color: '#fca5a5',
+        align: 'center',
+        lineSpacing: -1,
+      })
+      .setOrigin(0.5);
+    this.envContainer.add([trashIcon, trashLabel]);
+
+    // Tapping the Trash Bin directly discards the oldest plated item on the tray (with penalty)
+    this.trashBinBg.on('pointerdown', () => {
+      const oldestItem = this.servingTray.find((item) => item !== null);
+      if (oldestItem) {
+        this.discardTrayItemWithPenalty(oldestItem);
+      } else {
+        this.showPopup(
+          TRASH_BIN_POS.x - 40,
+          TRASH_BIN_POS.y - 40,
+          'Drag unwanted plate here (-50% cost)',
+          '#cbd5e1'
+        );
+      }
+    });
+
     const count = this.servingTray.filter((item) => item !== null).length;
     this.trayHeaderText = this.add
       .text(
         GAME_WIDTH / 2,
         counterY + 14,
-        `SERVING TRAY (${count}/3 PLATED) • DRAG TO CUSTOMER`,
+        `SERVING TRAY (${count}/3 PLATED) • DRAG TO SERVE OR 🗑️`,
         {
           fontFamily: 'monospace',
           fontSize: '10px',
@@ -206,7 +290,6 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.envContainer.add(this.trayHeaderText);
 
-    // Outer viewport border
     env.lineStyle(2, 0xfacc15, 0.6);
     env.strokeRoundedRect(6, 6, GAME_WIDTH - 12, GAME_HEIGHT - 12, 16);
   }
@@ -257,11 +340,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   private drawTier2KedaiBawahPokok(env: Phaser.GameObjects.Graphics): void {
-    // Lush shady evening/day park backdrop under a large tropical Angsana tree
     env.fillGradientStyle(0x132a13, 0x132a13, 0x1e293b, 0x1e293b, 1);
     env.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Big shady tree trunk on the left/right edges & lush green leafy canopy overhead
     env.fillStyle(0x5c3a21, 1);
     env.fillRect(14, 150, 28, 175);
     env.fillStyle(0x14532d, 0.95);
@@ -273,13 +354,11 @@ export class MainScene extends Phaser.Scene {
     env.fillCircle(95, 150, 44);
     env.fillCircle(295, 150, 44);
 
-    // Paved outdoor patio floor
     env.fillStyle(0x27272a, 1);
     env.fillRect(0, 320, GAME_WIDTH, GAME_HEIGHT - 320);
     env.fillStyle(0x22c55e, 0.45);
     env.fillRect(0, 314, GAME_WIDTH, 6);
 
-    // Blue & White Pasar Malam / Canopy Tent Roof
     const awningY = 132;
     const stripeCount = 9;
     const stripeW = (GAME_WIDTH - 16) / stripeCount;
@@ -293,7 +372,7 @@ export class MainScene extends Phaser.Scene {
       });
     }
 
-    env.fillStyle(0xDCFCE7, 1);
+    env.fillStyle(0xdcfce7, 1);
     env.fillRoundedRect(45, awningY + 20, GAME_WIDTH - 90, 22, 6);
     env.lineStyle(2, 0x15803d, 1);
     env.strokeRoundedRect(45, awningY + 20, GAME_WIDTH - 90, 22, 6);
@@ -308,25 +387,21 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.envContainer.add(banner);
 
-    // 4 Plastic Tables + Red Stools for up to 4 waiting customers
     TIER_2_SEATS.forEach((seat) => {
       this.drawPlasticTableAndStool(env, seat.x, seat.y + 20, 0xfef08a);
     });
   }
 
   private drawTier3CornerLotMamak(env: Phaser.GameObjects.Graphics): void {
-    // Bright illuminated Corner Lot Shophouse interior/patio
     env.fillGradientStyle(0x1e3a8a, 0x1e3a8a, 0x1e293b, 0x1e293b, 1);
     env.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Bright cream shophouse tiled wall & pillars
     env.fillStyle(0xfef9c3, 0.14);
     env.fillRect(10, 145, GAME_WIDTH - 20, 172);
     env.fillStyle(0xfacc15, 0.22);
     env.fillRect(12, 145, 16, 172);
     env.fillRect(GAME_WIDTH - 28, 145, 16, 172);
 
-    // Hanging Football Triangular Pennant Banners ("BOLA LIVE!") across shophouse ceiling
     const bannerY = 178;
     env.lineStyle(2, 0xfef08a, 0.9);
     env.lineBetween(16, bannerY, GAME_WIDTH - 16, bannerY);
@@ -337,7 +412,6 @@ export class MainScene extends Phaser.Scene {
       env.fillTriangle(fx, bannerY, fx + 22, bannerY, fx + 11, bannerY + 20);
     }
 
-    // Big screen TV in corner lot showing live football match
     env.fillStyle(0x0f172a, 1);
     env.fillRoundedRect(GAME_WIDTH / 2 - 48, 186, 96, 36, 4);
     env.fillStyle(0x16a34a, 1);
@@ -356,7 +430,6 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.envContainer.add(tvLabel);
 
-    // Shophouse Signboard
     const awningY = 132;
     env.fillStyle(0xdc2626, 1);
     env.fillRoundedRect(10, awningY, GAME_WIDTH - 20, 26, 6);
@@ -375,13 +448,11 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.envContainer.add(banner);
 
-    // Checkered shophouse tile floor
     env.fillStyle(0x334155, 1);
     env.fillRect(0, 320, GAME_WIDTH, GAME_HEIGHT - 320);
     env.fillStyle(0xfacc15, 0.7);
     env.fillRect(0, 314, GAME_WIDTH, 6);
 
-    // 4 Shophouse Tables + Stools
     TIER_2_SEATS.forEach((seat) => {
       this.drawPlasticTableAndStool(env, seat.x, seat.y + 20, 0x38bdf8);
     });
@@ -393,10 +464,8 @@ export class MainScene extends Phaser.Scene {
     cy: number,
     tableColor: number
   ): void {
-    // Red plastic stool behind table
     this.drawPlasticRedStool(gfx, cx, cy);
 
-    // Square plastic table surface in front of customer
     gfx.fillStyle(tableColor, 0.92);
     gfx.fillRoundedRect(cx - 34, cy - 16, 68, 14, 4);
     gfx.lineStyle(1.5, 0x78350f, 0.9);
@@ -442,7 +511,7 @@ export class MainScene extends Phaser.Scene {
       recipeId,
       pos.x,
       pos.y,
-      (item, px, py, wasClick) => this.tryFulfillCustomerOrder(item, px, py, wasClick),
+      (item, px, py, wasClick) => this.tryFulfillOrDiscardOrder(item, px, py, wasClick),
       (item, px, py, isDragging) =>
         this.updateCustomerDropHighlights(item, px, py, isDragging)
     );
@@ -455,7 +524,7 @@ export class MainScene extends Phaser.Scene {
   private updateTrayHeaderCount(): void {
     const count = this.servingTray.filter((item) => item !== null).length;
     this.trayHeaderText.setText(
-      `SERVING TRAY (${count}/3 PLATED) • DRAG TO CUSTOMER`
+      `SERVING TRAY (${count}/3 PLATED) • DRAG TO SERVE OR 🗑️`
     );
   }
 
@@ -479,14 +548,67 @@ export class MainScene extends Phaser.Scene {
       );
       cust.setHighlight(dist < 95 && cust.canAcceptRecipe(item.recipeId));
     });
+
+    // Highlight Trash Bin when dragging near it
+    if (this.trashBinBg) {
+      if (!isDragging) {
+        this.trashBinBg.setFillStyle(0x450a0a, 0.9);
+      } else {
+        const trashDist = Phaser.Math.Distance.Between(
+          pointerX,
+          pointerY,
+          TRASH_BIN_POS.x,
+          TRASH_BIN_POS.y
+        );
+        this.trashBinBg.setFillStyle(trashDist < 55 ? 0xdc2626 : 0x450a0a, 0.95);
+      }
+    }
   }
 
-  private tryFulfillCustomerOrder(
+  /**
+   * Discards a plated item from the Serving Tray and applies the waste penalty:
+   * - Deducts 50% of the item's menu price (min RM 1.00)
+   * - Drops reputation by 1 and resets active combo streak
+   */
+  private discardTrayItemWithPenalty(item: FoodTrayItem): void {
+    const def = getRecipeDef(item.recipeId);
+    const cashPenalty = gameState.recordDiscardedFood(def.price, 1);
+
+    if (this.servingTray[item.trayIndex] === item) {
+      this.servingTray[item.trayIndex] = null;
+    }
+    item.destroy();
+    this.updateTrayHeaderCount();
+
+    this.showPopup(
+      TRASH_BIN_POS.x - 45,
+      TRASH_BIN_POS.y - 42,
+      `🗑️ Discarded ${def.shortName} (-RM ${cashPenalty.toFixed(2)}, Rep -1)`,
+      '#f87171'
+    );
+  }
+
+  private tryFulfillOrDiscardOrder(
     item: FoodTrayItem,
     pointerX: number,
     pointerY: number,
     wasClick: boolean
   ): boolean {
+    // 1. Check if dragged onto the Trash Bin
+    if (!wasClick) {
+      const trashDist = Phaser.Math.Distance.Between(
+        pointerX,
+        pointerY,
+        TRASH_BIN_POS.x,
+        TRASH_BIN_POS.y
+      );
+      if (trashDist < 55) {
+        this.discardTrayItemWithPenalty(item);
+        return true;
+      }
+    }
+
+    // 2. Check customer order fulfillment
     let targetCustomer: Customer | null = null;
 
     if (!wasClick) {
@@ -530,19 +652,44 @@ export class MainScene extends Phaser.Scene {
     return true;
   }
 
+  /**
+   * Spawns a customer with phase-driven Rush Hour recipe weights and Customer Archetypes:
+   * - Morning: Breakfast Rush (Teh Tarik & Roti Canai bias)
+   * - Evening/Night: Supper & Bola Live Rush (higher Bola Fan & Tapau Rider chance)
+   */
   private spawnCustomerInSeat(seatIndex: number): void {
     const seats = this.getActiveSeats();
     if (seatIndex >= seats.length || this.customers[seatIndex] !== null) return;
 
     const seat = seats[seatIndex];
-    const unlocked = gameState.getState().unlockedRecipes;
+    const state = gameState.getState();
+    const unlocked = state.unlockedRecipes;
     if (unlocked.length === 0) return;
 
-    const orderCount = Math.random() < 0.2 ? 2 : 1;
+    // Choose Customer Archetype based on time of day
+    const roll = Math.random();
+    let archetype: CustomerArchetype = 'regular';
+    if (state.isNight) {
+      if (roll < 0.32) archetype = 'bola_fan';
+      else if (roll < 0.52) archetype = 'tapau_rider';
+    } else {
+      if (roll < 0.22) archetype = 'tapau_rider';
+      else if (roll < 0.32) archetype = 'bola_fan';
+    }
+
+    // Bola fans usually order 2 items (drink + food); Tapau riders order 1 quick item
+    const orderCount =
+      archetype === 'bola_fan'
+        ? 2
+        : archetype === 'tapau_rider'
+        ? 1
+        : Math.random() < 0.25
+        ? 2
+        : 1;
+
     const requested: RecipeId[] = [];
     for (let i = 0; i < orderCount; i++) {
-      const pick = unlocked[Math.floor(Math.random() * unlocked.length)];
-      requested.push(pick);
+      requested.push(this.pickPhaseWeightedRecipe(unlocked, state.phase));
     }
 
     const customer = new Customer(
@@ -556,25 +703,44 @@ export class MainScene extends Phaser.Scene {
       {
         onServed: (cust, recipeId, allComplete, patienceRatio) => {
           const def = getRecipeDef(recipeId);
-          const tip = patienceRatio > 0.6 ? 1.0 : 0;
-          const totalEarned = def.price + tip;
-          gameState.addCash(totalEarned);
+
+          // Archetype & fast-service tip calculation
+          let tip = patienceRatio > 0.6 ? 1.0 : 0;
+          if (cust.archetype === 'tapau_rider' && patienceRatio > 0.45) {
+            tip += 2.0; // Priority delivery rider bonus
+          } else if (cust.archetype === 'bola_fan' && patienceRatio > 0.5) {
+            tip += 1.0;
+          }
+
+          const totalEarned = gameState.recordSale(def.price, tip, allComplete);
 
           if (allComplete) {
-            gameState.adjustReputation(patienceRatio > 0.6 ? 3 : 1);
+            const repGain =
+              cust.archetype === 'bola_fan'
+                ? 5
+                : patienceRatio > 0.6
+                ? 3
+                : 1;
+            gameState.adjustReputation(repGain);
           }
+
+          const streak = gameState.getState().comboStreak;
+          const extraLabel =
+            streak >= 3
+              ? ` 🔥${streak}x!`
+              : tip > 0
+              ? ` (Tip!)`
+              : '';
 
           this.showPopup(
             cust.x,
             cust.y - 75,
-            tip > 0
-              ? `+RM ${totalEarned.toFixed(2)} (Tip +RM ${tip.toFixed(2)}!)`
-              : `+RM ${totalEarned.toFixed(2)}`,
+            `+RM ${totalEarned.toFixed(2)}${extraLabel}`,
             '#4ade80'
           );
         },
         onTimeout: (cust) => {
-          gameState.adjustReputation(-5);
+          gameState.recordWalkout();
           this.showPopup(cust.x, cust.y - 75, 'Walked Out! Rep -5', '#f87171');
         },
         onExited: (cust) => {
@@ -583,15 +749,37 @@ export class MainScene extends Phaser.Scene {
           }
           cust.destroy();
         },
-      }
+      },
+      archetype
     );
 
     customer.setDepth(10);
-    // Slightly scale down customer width when 4 seats are active so all 4 speech bubbles fit cleanly
     if (seats.length >= 4) {
       customer.setScale(0.78);
     }
     this.customers[seatIndex] = customer;
+  }
+
+  private pickPhaseWeightedRecipe(
+    unlocked: RecipeId[],
+    phase: string
+  ): RecipeId {
+    if (phase === 'Morning' && Math.random() < 0.65) {
+      const morningFaves = unlocked.filter(
+        (id) => id === 'teh_tarik' || id === 'roti_canai' || id === 'roti_telur'
+      );
+      if (morningFaves.length > 0) {
+        return morningFaves[Math.floor(Math.random() * morningFaves.length)];
+      }
+    } else if ((phase === 'Evening' || phase === 'Night') && Math.random() < 0.65) {
+      const nightFaves = unlocked.filter(
+        (id) => id === 'maggi_goreng' || id === 'nasi_kandar' || id === 'milo_ais'
+      );
+      if (nightFaves.length > 0) {
+        return nightFaves[Math.floor(Math.random() * nightFaves.length)];
+      }
+    }
+    return unlocked[Math.floor(Math.random() * unlocked.length)];
   }
 
   private showPopup(x: number, y: number, message: string, color: string): void {
@@ -618,7 +806,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   override update(time: number, delta: number): void {
-    // Pause gameplay timers while the Upgrade Kedai modal is open
     if (this.upgradeModal && this.upgradeModal.visible) {
       return;
     }
@@ -626,7 +813,8 @@ export class MainScene extends Phaser.Scene {
     this.topHud.updateEntity(time, delta);
     this.prepDock.updateEntity(time, delta);
 
-    const maxCust = gameState.getState().maxCustomers;
+    const state = gameState.getState();
+    const maxCust = state.maxCustomers;
     for (let i = 0; i < maxCust; i++) {
       this.customers[i]?.updateEntity(time, delta);
     }
@@ -643,7 +831,10 @@ export class MainScene extends Phaser.Scene {
       this.spawnCooldownMs -= delta;
       if (this.spawnCooldownMs <= 0) {
         this.spawnCustomerInSeat(emptySeatIndex);
-        this.spawnCooldownMs = maxCust >= 4 ? 1600 : 2200;
+        // Faster customer arrivals during Evening/Night supper rush
+        const rushMultiplier = state.isNight ? 0.72 : 1.0;
+        const baseDelay = maxCust >= 4 ? 1600 : 2100;
+        this.spawnCooldownMs = baseDelay * rushMultiplier;
       }
     }
   }

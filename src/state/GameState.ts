@@ -25,6 +25,16 @@ export interface TierInfo {
 
 export type TimeOfDayPhase = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 
+export interface ShiftSummary {
+  day: number;
+  servedCount: number;
+  walkoutsCount: number;
+  revenueEarned: number;
+  tipsEarned: number;
+  wasteCount: number;
+  wastePenalty: number;
+}
+
 export interface GameStateSnapshot {
   cash: number;
   reputation: number;
@@ -39,6 +49,9 @@ export interface GameStateSnapshot {
   hasAneHelper: boolean;
   unlockedRecipes: RecipeId[];
   stationStatus: Record<string, StationSlot>;
+  comboStreak: number;
+  shiftStats: ShiftSummary;
+  lastCompletedShift: ShiftSummary | null;
 }
 
 export interface GameStateEvents {
@@ -46,14 +59,17 @@ export interface GameStateEvents {
   cashChanged: (cash: number, delta: number) => void;
   reputationChanged: (reputation: number, delta: number) => void;
   dayChanged: (day: number) => void;
-  shiftEnded: (completedDay: number, nextDay: number) => void;
+  shiftEnded: (completedDay: number, nextDay: number, summary: ShiftSummary) => void;
   dayTick: (elapsedSeconds: number, phase: TimeOfDayPhase, isNight: boolean) => void;
   tierChanged: (tier: TierInfo) => void;
   recipeUnlocked: (recipeId: RecipeId, unlockedRecipes: RecipeId[]) => void;
   stationUpdated: (slot: StationSlot, allStations: Record<string, StationSlot>) => void;
+  comboChanged: (streak: number) => void;
 }
 
 type AnyListener = (...args: any[]) => void;
+
+const STORAGE_KEY = 'mamak_shop_save_v1';
 
 export class GameStateStore {
   public static readonly DAY_DURATION_SECONDS = 90;
@@ -62,7 +78,12 @@ export class GameStateStore {
   private state: GameStateSnapshot;
 
   constructor() {
-    this.state = {
+    this.state = this.createDefaultState();
+    this.loadFromStorage();
+  }
+
+  private createDefaultState(): GameStateSnapshot {
+    return {
       cash: 50.0,
       reputation: 70,
       day: 1,
@@ -96,7 +117,97 @@ export class GameStateStore {
           elapsedMs: 0,
         },
       },
+      comboStreak: 0,
+      shiftStats: {
+        day: 1,
+        servedCount: 0,
+        walkoutsCount: 0,
+        revenueEarned: 0,
+        tipsEarned: 0,
+        wasteCount: 0,
+        wastePenalty: 0,
+      },
+      lastCompletedShift: null,
     };
+  }
+
+  // --- Persistence (localStorage) ---
+
+  private saveToStorage(): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const payload = {
+        cash: this.state.cash,
+        reputation: this.state.reputation,
+        day: this.state.day,
+        tier: this.state.tier,
+        maxCustomers: this.state.maxCustomers,
+        griddleCapacity: this.state.griddleCapacity,
+        hasAneHelper: this.state.hasAneHelper,
+        unlockedRecipes: this.state.unlockedRecipes,
+        shiftStats: this.state.shiftStats,
+        lastCompletedShift: this.state.lastCompletedShift,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota or private mode errors
+    }
+  }
+
+  private loadFromStorage(): void {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.cash === 'number') this.state.cash = parsed.cash;
+      if (typeof parsed.reputation === 'number') this.state.reputation = parsed.reputation;
+      if (typeof parsed.day === 'number') this.state.day = parsed.day;
+      if (parsed.tier && typeof parsed.tier.level === 'number') {
+        this.state.tier = parsed.tier;
+      }
+      if (typeof parsed.maxCustomers === 'number') {
+        this.state.maxCustomers = parsed.maxCustomers;
+      }
+      if (typeof parsed.griddleCapacity === 'number') {
+        this.state.griddleCapacity = parsed.griddleCapacity;
+      }
+      if (typeof parsed.hasAneHelper === 'boolean') {
+        this.state.hasAneHelper = parsed.hasAneHelper;
+      }
+      if (Array.isArray(parsed.unlockedRecipes)) {
+        this.state.unlockedRecipes = parsed.unlockedRecipes;
+      }
+      if (parsed.shiftStats) {
+        this.state.shiftStats = {
+          ...this.state.shiftStats,
+          ...parsed.shiftStats,
+          day: this.state.day,
+        };
+      }
+      if (parsed.lastCompletedShift) {
+        this.state.lastCompletedShift = parsed.lastCompletedShift;
+      }
+    } catch {
+      // Ignore malformed storage
+    }
+  }
+
+  public resetGame(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // Ignore
+    }
+    this.state = this.createDefaultState();
+    this.emit('cashChanged', this.state.cash, 0);
+    this.emit('reputationChanged', this.state.reputation, 0);
+    this.emit('dayChanged', this.state.day);
+    this.emit('tierChanged', { ...this.state.tier });
+    this.emit('comboChanged', 0);
+    this.notifyChange();
   }
 
   // --- Event Emitter Methods ---
@@ -134,6 +245,7 @@ export class GameStateStore {
   }
 
   private notifyChange(): void {
+    this.saveToStorage();
     this.emit('change', this.getState());
   }
 
@@ -144,6 +256,10 @@ export class GameStateStore {
       ...this.state,
       tier: { ...this.state.tier },
       unlockedRecipes: [...this.state.unlockedRecipes],
+      shiftStats: { ...this.state.shiftStats },
+      lastCompletedShift: this.state.lastCompletedShift
+        ? { ...this.state.lastCompletedShift }
+        : null,
       stationStatus: Object.fromEntries(
         Object.entries(this.state.stationStatus).map(([k, v]) => [k, { ...v }])
       ),
@@ -173,6 +289,19 @@ export class GameStateStore {
     return true;
   }
 
+  /**
+   * Applies a mandatory cash penalty (clamped at RM 0.00) and emits negative cashChanged delta.
+   */
+  public applyCashPenalty(amount: number): number {
+    if (amount <= 0) return 0;
+    const rounded = Math.round(amount * 100) / 100;
+    const actualDeducted = Math.min(this.state.cash, rounded);
+    this.state.cash = Math.max(0, Math.round((this.state.cash - rounded) * 100) / 100);
+    this.emit('cashChanged', this.state.cash, -rounded);
+    this.notifyChange();
+    return actualDeducted;
+  }
+
   public adjustReputation(delta: number): number {
     const prev = this.state.reputation;
     const clamped = Math.max(0, Math.min(100, Math.round(prev + delta)));
@@ -191,6 +320,64 @@ export class GameStateStore {
     this.emit('recipeUnlocked', id, [...this.state.unlockedRecipes]);
     this.notifyChange();
     return true;
+  }
+
+  // --- Gameplay Metrics: Sales, Combos, Walkouts & Food Waste Penalty ---
+
+  public recordSale(basePrice: number, tipAmount: number, orderComplete: boolean): number {
+    let comboBonus = 0;
+    if (orderComplete) {
+      this.state.comboStreak += 1;
+      if (this.state.comboStreak >= 3) {
+        comboBonus = Math.min(2.5, (this.state.comboStreak - 2) * 0.5);
+      }
+      this.emit('comboChanged', this.state.comboStreak);
+    }
+
+    const totalTip = Math.round((tipAmount + comboBonus) * 100) / 100;
+    const totalEarned = Math.round((basePrice + totalTip) * 100) / 100;
+
+    this.state.shiftStats.revenueEarned =
+      Math.round((this.state.shiftStats.revenueEarned + basePrice) * 100) / 100;
+    this.state.shiftStats.tipsEarned =
+      Math.round((this.state.shiftStats.tipsEarned + totalTip) * 100) / 100;
+    if (orderComplete) {
+      this.state.shiftStats.servedCount += 1;
+    }
+
+    this.addCash(totalEarned);
+    return totalEarned;
+  }
+
+  public recordWalkout(): void {
+    this.state.shiftStats.walkoutsCount += 1;
+    if (this.state.comboStreak > 0) {
+      this.state.comboStreak = 0;
+      this.emit('comboChanged', 0);
+    }
+    this.adjustReputation(-5);
+  }
+
+  /**
+   * Discarding/burning food or drinks incurs a waste cost penalty (50% of menu price),
+   * drops reputation by 1, and resets the active combo streak.
+   */
+  public recordDiscardedFood(menuPrice: number, repPenalty = 1): number {
+    const cashPenalty = Math.max(1.0, Math.round(menuPrice * 0.5 * 100) / 100);
+    this.state.shiftStats.wasteCount += 1;
+    this.state.shiftStats.wastePenalty =
+      Math.round((this.state.shiftStats.wastePenalty + cashPenalty) * 100) / 100;
+
+    if (this.state.comboStreak > 0) {
+      this.state.comboStreak = 0;
+      this.emit('comboChanged', 0);
+    }
+
+    this.applyCashPenalty(cashPenalty);
+    if (repPenalty > 0) {
+      this.adjustReputation(-repPenalty);
+    }
+    return cashPenalty;
   }
 
   // --- Kedai Upgrades ---
@@ -218,7 +405,6 @@ export class GameStateStore {
     if (this.state.tier.level >= 3) return false;
     if (!this.deductCash(1200)) return false;
 
-    // Ensure Tier 2 perks are also active if player jumped or upgraded sequentially
     this.state.maxCustomers = 4;
     this.state.griddleCapacity = 2;
     this.unlockItem('milo_ais');
@@ -247,10 +433,23 @@ export class GameStateStore {
 
     if (this.state.dayElapsedSeconds >= this.state.dayDurationSeconds) {
       const completedDay = this.state.day;
+      const summary: ShiftSummary = { ...this.state.shiftStats, day: completedDay };
+      this.state.lastCompletedShift = summary;
+
       this.state.dayElapsedSeconds %= this.state.dayDurationSeconds;
       this.state.day += 1;
+      this.state.shiftStats = {
+        day: this.state.day,
+        servedCount: 0,
+        walkoutsCount: 0,
+        revenueEarned: 0,
+        tipsEarned: 0,
+        wasteCount: 0,
+        wastePenalty: 0,
+      };
+
       this.emit('dayChanged', this.state.day);
-      this.emit('shiftEnded', completedDay, this.state.day);
+      this.emit('shiftEnded', completedDay, this.state.day, summary);
     }
 
     const progress = this.state.dayElapsedSeconds / this.state.dayDurationSeconds;
@@ -261,7 +460,7 @@ export class GameStateStore {
     this.state.isNight = isNight;
 
     this.emit('dayTick', this.state.dayElapsedSeconds, phase, isNight);
-    this.notifyChange();
+    this.emit('change', this.getState());
   }
 
   private computePhase(progress: number): TimeOfDayPhase {

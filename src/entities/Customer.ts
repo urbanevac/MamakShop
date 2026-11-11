@@ -4,6 +4,7 @@ import { RecipeId } from '../state/GameState';
 import { getRecipeDef } from '../config/recipes';
 
 export type CustomerState = 'walking_in' | 'waiting' | 'leaving_happy' | 'leaving_angry';
+export type CustomerArchetype = 'regular' | 'tapau_rider' | 'bola_fan';
 
 export interface CustomerEvents {
   onServed: (
@@ -21,12 +22,13 @@ const SKIN_TONES = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524];
 
 export class Customer extends BaseEntity {
   public readonly seatIndex: number;
+  public readonly archetype: CustomerArchetype;
   public readonly requestedItems: RecipeId[];
   public readonly remainingItems: RecipeId[];
   public customerState: CustomerState = 'walking_in';
 
-  private readonly maxPatienceMs = 15000; // 15 seconds decay
-  private remainingPatienceMs = 15000;
+  private readonly maxPatienceMs: number;
+  private remainingPatienceMs: number;
 
   private readonly targetX: number;
   private readonly targetY: number;
@@ -34,6 +36,7 @@ export class Customer extends BaseEntity {
 
   private bodyGraphics!: Phaser.GameObjects.Graphics;
   private faceGraphics!: Phaser.GameObjects.Graphics;
+  private archetypeTag!: Phaser.GameObjects.Text;
   private bubbleContainer!: Phaser.GameObjects.Container;
   private bubbleBg!: Phaser.GameObjects.Graphics;
   private bubbleItemsContainer!: Phaser.GameObjects.Container;
@@ -52,17 +55,29 @@ export class Customer extends BaseEntity {
     targetX: number,
     targetY: number,
     requestedItems: RecipeId[],
-    callbacks: CustomerEvents
+    callbacks: CustomerEvents,
+    archetype: CustomerArchetype = 'regular'
   ) {
     super(scene, spawnX, spawnY);
     this.seatIndex = seatIndex;
     this.targetX = targetX;
     this.targetY = targetY;
+    this.archetype = archetype;
     this.requestedItems = [...requestedItems];
     this.remainingItems = [...requestedItems];
     this.callbacks = callbacks;
 
-    this.shirtColor = SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)];
+    if (archetype === 'tapau_rider') {
+      this.maxPatienceMs = 11000;
+      this.shirtColor = 0x16a34a;
+    } else if (archetype === 'bola_fan') {
+      this.maxPatienceMs = 19000;
+      this.shirtColor = 0xdc2626;
+    } else {
+      this.maxPatienceMs = 15000;
+      this.shirtColor = SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)];
+    }
+    this.remainingPatienceMs = this.maxPatienceMs;
     this.skinColor = SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)];
 
     this.buildVisuals();
@@ -71,53 +86,131 @@ export class Customer extends BaseEntity {
   }
 
   private buildVisuals(): void {
-    // Drop target highlight ring when dragging food near customer
+    // Glowing drop-target ring when dragging food near customer
     this.highlightRing = this.scene.add.graphics();
+    this.highlightRing.fillStyle(0xfacc15, 0.16);
+    this.highlightRing.fillCircle(0, -10, 48);
     this.highlightRing.lineStyle(3, 0xfacc15, 0.95);
     this.highlightRing.strokeCircle(0, -10, 48);
     this.highlightRing.setVisible(false);
     this.add(this.highlightRing);
 
-    // Character torso & head (2D styled canvas shapes)
     this.bodyGraphics = this.scene.add.graphics();
-    // Shadow
-    this.bodyGraphics.fillStyle(0x000000, 0.3);
-    this.bodyGraphics.fillEllipse(0, 34, 54, 16);
 
-    // Shoulders / Shirt
+    // Soft ground shadow
+    this.bodyGraphics.fillStyle(0x000000, 0.35);
+    this.bodyGraphics.fillEllipse(0, 35, 56, 15);
+
+    // Torso / Shoulders with 3D shading
     this.bodyGraphics.fillStyle(this.shirtColor, 1);
-    this.bodyGraphics.fillRoundedRect(-24, -4, 48, 38, 12);
-    this.bodyGraphics.lineStyle(2, 0x1e293b, 0.8);
-    this.bodyGraphics.strokeRoundedRect(-24, -4, 48, 38, 12);
+    this.bodyGraphics.fillRoundedRect(-24, -4, 48, 39, 13);
+    // Subtle dark bottom shade on shirt
+    this.bodyGraphics.fillStyle(0x000000, 0.18);
+    this.bodyGraphics.fillRoundedRect(-22, 18, 44, 15, 8);
+    // Top shoulder rim highlight
+    this.bodyGraphics.lineStyle(2, 0xffffff, 0.22);
+    this.bodyGraphics.lineBetween(-16, -2, 16, -2);
+    // Crisp dark outline
+    this.bodyGraphics.lineStyle(2, 0x0f172a, 0.9);
+    this.bodyGraphics.strokeRoundedRect(-24, -4, 48, 39, 13);
 
-    // Collar detail
-    this.bodyGraphics.fillStyle(0xffffff, 0.25);
-    this.bodyGraphics.fillTriangle(-8, -4, 8, -4, 0, 8);
+    if (this.archetype === 'bola_fan') {
+      // Harimau Malaya / Football stripes
+      this.bodyGraphics.fillStyle(0xfacc15, 0.92);
+      this.bodyGraphics.fillRect(-11, -2, 6, 35);
+      this.bodyGraphics.fillRect(5, -2, 6, 35);
+    } else if (this.archetype === 'tapau_rider') {
+      // High-vis neon reflective harness
+      this.bodyGraphics.fillStyle(0xbef264, 0.95);
+      this.bodyGraphics.fillRect(-21, 9, 42, 6);
+      this.bodyGraphics.fillRect(-12, -3, 5, 14);
+      this.bodyGraphics.fillRect(7, -3, 5, 14);
+    } else {
+      // Polo collar V-neck
+      this.bodyGraphics.fillStyle(0xffffff, 0.3);
+      this.bodyGraphics.fillTriangle(-8, -4, 8, -4, 0, 8);
+    }
+
+    // Neck
+    this.bodyGraphics.fillStyle(this.skinColor, 1);
+    this.bodyGraphics.fillRoundedRect(-6, -10, 12, 10, 3);
+
+    // Ears
+    this.bodyGraphics.fillStyle(this.skinColor, 1);
+    this.bodyGraphics.fillCircle(-19, -21, 4.5);
+    this.bodyGraphics.fillCircle(19, -21, 4.5);
+    this.bodyGraphics.lineStyle(1.5, 0x0f172a, 0.8);
+    this.bodyGraphics.strokeCircle(-19, -21, 4.5);
+    this.bodyGraphics.strokeCircle(19, -21, 4.5);
 
     // Head
     this.bodyGraphics.fillStyle(this.skinColor, 1);
     this.bodyGraphics.fillCircle(0, -22, 19);
-    this.bodyGraphics.lineStyle(2, 0x1e293b, 0.8);
+    this.bodyGraphics.lineStyle(2, 0x0f172a, 0.9);
     this.bodyGraphics.strokeCircle(0, -22, 19);
 
-    // Hair / Cap
-    this.bodyGraphics.fillStyle(0x1c1917, 1);
-    this.bodyGraphics.slice(0, -24, 19, Phaser.Math.DegToRad(190), Phaser.Math.DegToRad(350), false);
-    this.bodyGraphics.fillPath();
+    // Hair / Helmet
+    if (this.archetype === 'tapau_rider') {
+      this.bodyGraphics.fillStyle(0x15803d, 1);
+      this.bodyGraphics.slice(
+        0,
+        -23,
+        21.5,
+        Phaser.Math.DegToRad(175),
+        Phaser.Math.DegToRad(365),
+        false
+      );
+      this.bodyGraphics.fillPath();
+      // Helmet visor strip
+      this.bodyGraphics.lineStyle(2.5, 0xbef264, 1);
+      this.bodyGraphics.lineBetween(-16, -28, 16, -28);
+    } else {
+      this.bodyGraphics.fillStyle(0x1c1917, 1);
+      this.bodyGraphics.slice(
+        0,
+        -24,
+        19.5,
+        Phaser.Math.DegToRad(185),
+        Phaser.Math.DegToRad(355),
+        false
+      );
+      this.bodyGraphics.fillPath();
+      // Hair sheen highlight
+      this.bodyGraphics.lineStyle(2, 0x57534e, 0.65);
+      this.bodyGraphics.beginPath();
+      this.bodyGraphics.arc(0, -24, 15, Phaser.Math.DegToRad(215), Phaser.Math.DegToRad(295), false);
+      this.bodyGraphics.strokePath();
+    }
 
     this.add(this.bodyGraphics);
 
-    // Facial expression graphics (updated dynamically with patience)
     this.faceGraphics = this.scene.add.graphics();
     this.add(this.faceGraphics);
     this.drawFace('neutral');
 
-    // Patience Bar above head (width 64px, sits at y = -54)
+    // Archetype badge pill on torso if special customer
+    if (this.archetype !== 'regular') {
+      const tagText = this.archetype === 'tapau_rider' ? '🛵 TAPAU' : '⚽ BOLA';
+      const tagBg = this.archetype === 'tapau_rider' ? '#14532d' : '#7f1d1d';
+      this.archetypeTag = this.scene.add
+        .text(0, 22, tagText, {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '8.5px',
+          fontStyle: 'bold',
+          color: '#fef08a',
+          backgroundColor: tagBg,
+          padding: { x: 4, y: 1.5 },
+        })
+        .setOrigin(0.5);
+      this.add(this.archetypeTag);
+    }
+
+    // Patience Bar above head (width 62px, sits at y = -52)
     this.patienceBarBg = this.scene.add.graphics();
-    this.patienceBarBg.fillStyle(0x18181b, 0.95);
-    this.patienceBarBg.fillRoundedRect(-32, -56, 64, 9, 4);
-    this.patienceBarBg.lineStyle(1, 0xfef08a, 0.6);
-    this.patienceBarBg.strokeRoundedRect(-32, -56, 64, 9, 4);
+    this.patienceBarBg.fillStyle(0x090d16, 0.95);
+    this.patienceBarBg.fillRoundedRect(-31, -54, 62, 9, 4.5);
+    this.patienceBarBg.lineStyle(1.2, 0xfef08a, 0.7);
+    this.patienceBarBg.strokeRoundedRect(-31, -54, 62, 9, 4.5);
     this.patienceBarBg.setVisible(false);
     this.add(this.patienceBarBg);
 
@@ -125,8 +218,9 @@ export class Customer extends BaseEntity {
     this.patienceBarFill.setVisible(false);
     this.add(this.patienceBarFill);
 
-    // Speech Bubble container above patience bar (y = -108)
-    this.bubbleContainer = this.scene.add.container(0, -108);
+    // Stagger speech bubble height slightly on alternating seats so 4-seat mode never collides
+    const bubbleY = this.seatIndex % 2 === 0 ? -102 : -112;
+    this.bubbleContainer = this.scene.add.container(0, bubbleY);
     this.bubbleContainer.setVisible(false);
 
     this.bubbleBg = this.scene.add.graphics();
@@ -141,10 +235,19 @@ export class Customer extends BaseEntity {
 
   private drawFace(mood: 'neutral' | 'happy' | 'impatient' | 'angry'): void {
     this.faceGraphics.clear();
-    // Eyes
+
+    // Rosy cheeks
+    this.faceGraphics.fillStyle(0xf87171, mood === 'happy' ? 0.35 : 0.18);
+    this.faceGraphics.fillCircle(-10, -19, 3.2);
+    this.faceGraphics.fillCircle(10, -19, 3.2);
+
+    // Eyes + white specular catchlight
     this.faceGraphics.fillStyle(0x18181b, 1);
-    this.faceGraphics.fillCircle(-6, -24, 2.2);
-    this.faceGraphics.fillCircle(6, -24, 2.2);
+    this.faceGraphics.fillCircle(-6.5, -23.5, 2.5);
+    this.faceGraphics.fillCircle(6.5, -23.5, 2.5);
+    this.faceGraphics.fillStyle(0xffffff, 0.9);
+    this.faceGraphics.fillCircle(-7.2, -24.3, 0.9);
+    this.faceGraphics.fillCircle(5.8, -24.3, 0.9);
 
     this.faceGraphics.lineStyle(2, 0x18181b, 1);
     if (mood === 'happy') {
@@ -156,12 +259,10 @@ export class Customer extends BaseEntity {
       this.faceGraphics.arc(0, -17, 4, Phaser.Math.DegToRad(25), Phaser.Math.DegToRad(155), false);
       this.faceGraphics.strokePath();
     } else if (mood === 'impatient') {
-      // Flat mouth + furrowed brows
       this.faceGraphics.lineBetween(-5, -15, 5, -15);
       this.faceGraphics.lineBetween(-9, -28, -3, -27);
       this.faceGraphics.lineBetween(9, -28, 3, -27);
     } else if (mood === 'angry') {
-      // Frown + angry brows
       this.faceGraphics.beginPath();
       this.faceGraphics.arc(0, -12, 5, Phaser.Math.DegToRad(200), Phaser.Math.DegToRad(340), false);
       this.faceGraphics.strokePath();
@@ -171,6 +272,10 @@ export class Customer extends BaseEntity {
     }
   }
 
+  /**
+   * Compact vertical/stacked Speech Bubble layout so 4 seated customers never overlap horizontally!
+   * Max bubble width is 84px (single item) or 88px (stacked 2-item order).
+   */
   private refreshSpeechBubble(): void {
     this.bubbleItemsContainer.removeAll(true);
     this.bubbleBg.clear();
@@ -181,49 +286,93 @@ export class Customer extends BaseEntity {
       return;
     }
 
-    const bubbleW = count === 1 ? 86 : 132;
-    const bubbleH = 44;
+    const isSamePair =
+      count === 2 && this.remainingItems[0] === this.remainingItems[1];
+    const rows = count === 1 || isSamePair ? 1 : 2;
+    const bubbleW = 86;
+    const bubbleH = rows === 1 ? 40 : 58;
 
-    // White speech bubble with Mamak yellow border & tail
-    this.bubbleBg.fillStyle(0xfffbeb, 0.98);
+    const borderColor =
+      this.archetype === 'tapau_rider'
+        ? 0x22c55e
+        : this.archetype === 'bola_fan'
+        ? 0xef4444
+        : 0xf59e0b;
+
+    // Subtle drop shadow under speech bubble
+    this.bubbleBg.fillStyle(0x000000, 0.35);
+    this.bubbleBg.fillRoundedRect(
+      -bubbleW / 2 + 2,
+      -bubbleH / 2 + 3,
+      bubbleW,
+      bubbleH,
+      10
+    );
+
+    // Crisp cream speech bubble card
+    this.bubbleBg.fillStyle(0xfffbeb, 0.99);
     this.bubbleBg.fillRoundedRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 10);
-    this.bubbleBg.lineStyle(2.5, 0xf59e0b, 1);
+    this.bubbleBg.lineStyle(2.2, borderColor, 1);
     this.bubbleBg.strokeRoundedRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 10);
 
-    // Speech bubble pointer triangle
-    this.bubbleBg.fillStyle(0xfffbeb, 0.98);
-    this.bubbleBg.fillTriangle(-6, bubbleH / 2 - 1, 6, bubbleH / 2 - 1, 0, bubbleH / 2 + 8);
-    this.bubbleBg.lineStyle(2.5, 0xf59e0b, 1);
-    this.bubbleBg.lineBetween(-6, bubbleH / 2, 0, bubbleH / 2 + 8);
-    this.bubbleBg.lineBetween(6, bubbleH / 2, 0, bubbleH / 2 + 8);
+    // Speech bubble pointer tail
+    this.bubbleBg.fillStyle(0xfffbeb, 0.99);
+    this.bubbleBg.fillTriangle(-5, bubbleH / 2 - 1, 5, bubbleH / 2 - 1, 0, bubbleH / 2 + 7);
+    this.bubbleBg.lineStyle(2.2, borderColor, 1);
+    this.bubbleBg.lineBetween(-5, bubbleH / 2, 0, bubbleH / 2 + 7);
+    this.bubbleBg.lineBetween(5, bubbleH / 2, 0, bubbleH / 2 + 7);
 
-    const spacing = 60;
-    const startX = -((count - 1) * spacing) / 2;
-
-    this.remainingItems.forEach((recipeId, idx) => {
+    if (rows === 1) {
+      const recipeId = this.remainingItems[0];
       const def = getRecipeDef(recipeId);
-      const itemX = startX + idx * spacing;
-
       const iconGfx = this.scene.add.graphics();
-      Customer.drawFoodIcon(iconGfx, recipeId, itemX - 18, 0, 0.78);
+      Customer.drawFoodIcon(iconGfx, recipeId, -22, 0, 0.78);
       this.bubbleItemsContainer.add(iconGfx);
 
+      const qtySuffix = isSamePair ? ' ×2' : '';
       const label = this.scene.add
-        .text(itemX + 2, 0, def.shortName.replace(' ', '\n'), {
+        .text(-4, 0, `${def.shortName.replace(' ', '\n')}${qtySuffix}`, {
           fontFamily: 'system-ui, -apple-system, sans-serif',
           fontSize: '10px',
           fontStyle: 'bold',
-          color: '#1c1917',
+          color: '#0f172a',
           align: 'left',
           lineSpacing: -1,
         })
         .setOrigin(0, 0.5);
       this.bubbleItemsContainer.add(label);
-    });
+    } else {
+      // Stacked 2-row compact order list (zero horizontal spillover!)
+      this.remainingItems.forEach((recipeId, idx) => {
+        const def = getRecipeDef(recipeId);
+        const rowY = idx === 0 ? -13 : 13;
+
+        if (idx === 1) {
+          const divider = this.scene.add.graphics();
+          divider.lineStyle(1, 0xfde68a, 0.9);
+          divider.lineBetween(-34, 0, 34, 0);
+          this.bubbleItemsContainer.add(divider);
+        }
+
+        const iconGfx = this.scene.add.graphics();
+        Customer.drawFoodIcon(iconGfx, recipeId, -24, rowY, 0.62);
+        this.bubbleItemsContainer.add(iconGfx);
+
+        const label = this.scene.add
+          .text(-8, rowY, def.shortName, {
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: '9.5px',
+            fontStyle: 'bold',
+            color: '#0f172a',
+          })
+          .setOrigin(0, 0.5);
+        this.bubbleItemsContainer.add(label);
+      });
+    }
   }
 
   /**
-   * Reusable 2D procedural canvas food icon renderer
+   * Upgraded 2D procedural food illustrations with shadows, highlights, and authentic details
    */
   public static drawFoodIcon(
     gfx: Phaser.GameObjects.Graphics,
@@ -233,72 +382,126 @@ export class Customer extends BaseEntity {
     scale = 1
   ): void {
     if (recipeId === 'teh_tarik') {
-      gfx.lineStyle(2.5 * scale, 0xcbd5e1, 1);
-      gfx.strokeCircle(cx + 9 * scale, cy, 5 * scale);
+      // Saucer shadow
+      gfx.fillStyle(0x000000, 0.22);
+      gfx.fillEllipse(cx, cy + 11 * scale, 22 * scale, 6 * scale);
+      // Glass handle
+      gfx.lineStyle(2.5 * scale, 0xe2e8f0, 1);
+      gfx.strokeCircle(cx + 9 * scale, cy + 1 * scale, 4.8 * scale);
+      // Warm pulled tea body
       gfx.fillStyle(0xc27838, 1);
-      gfx.fillRoundedRect(cx - 10 * scale, cy - 11 * scale, 19 * scale, 22 * scale, 3 * scale);
-      gfx.lineStyle(1.5 * scale, 0xe2e8f0, 0.9);
-      gfx.strokeRoundedRect(cx - 10 * scale, cy - 11 * scale, 19 * scale, 22 * scale, 3 * scale);
+      gfx.fillRoundedRect(cx - 9.5 * scale, cy - 10 * scale, 18 * scale, 21 * scale, 3 * scale);
+      // Darker tea depth at bottom
+      gfx.fillStyle(0x9a5b25, 0.6);
+      gfx.fillRoundedRect(cx - 8.5 * scale, cy + 2 * scale, 16 * scale, 8 * scale, 2 * scale);
+      // Vertical glass highlight
+      gfx.fillStyle(0xffffff, 0.3);
+      gfx.fillRect(cx - 6.5 * scale, cy - 6 * scale, 2.5 * scale, 14 * scale);
+      // Glass rim outline
+      gfx.lineStyle(1.4 * scale, 0xf8fafc, 0.9);
+      gfx.strokeRoundedRect(cx - 9.5 * scale, cy - 10 * scale, 18 * scale, 21 * scale, 3 * scale);
+      // Frothy pulled foam crown (3 bubbles)
       gfx.fillStyle(0xfef3c7, 1);
-      gfx.fillRoundedRect(cx - 11 * scale, cy - 13 * scale, 21 * scale, 6 * scale, 3 * scale);
+      gfx.fillRoundedRect(cx - 10.5 * scale, cy - 13 * scale, 20 * scale, 6 * scale, 3 * scale);
+      gfx.fillCircle(cx - 5 * scale, cy - 12 * scale, 3.2 * scale);
+      gfx.fillCircle(cx, cy - 13 * scale, 3.6 * scale);
+      gfx.fillCircle(cx + 5 * scale, cy - 12 * scale, 3.2 * scale);
     } else if (recipeId === 'milo_ais') {
-      // Iced Milo glass with green rim & red straw
+      // Tall iced Milo glass
+      gfx.fillStyle(0x000000, 0.22);
+      gfx.fillEllipse(cx, cy + 12 * scale, 20 * scale, 5 * scale);
       gfx.fillStyle(0x3e2723, 1);
       gfx.fillRoundedRect(cx - 9 * scale, cy - 11 * scale, 18 * scale, 23 * scale, 3 * scale);
+      // Chocolate malt gradient highlight
+      gfx.fillStyle(0x5d4037, 0.7);
+      gfx.fillRect(cx - 6 * scale, cy - 7 * scale, 4 * scale, 16 * scale);
       gfx.lineStyle(1.5 * scale, 0x22c55e, 0.95);
       gfx.strokeRoundedRect(cx - 9 * scale, cy - 11 * scale, 18 * scale, 23 * scale, 3 * scale);
-      // Ice cubes & Milo powder top
-      gfx.fillStyle(0xe0f2fe, 0.85);
-      gfx.fillRect(cx - 6 * scale, cy - 8 * scale, 5 * scale, 5 * scale);
-      gfx.fillRect(cx + 1 * scale, cy - 7 * scale, 5 * scale, 5 * scale);
-      // Red straw
-      gfx.lineStyle(2 * scale, 0xef4444, 1);
+      // Floating ice cubes
+      gfx.fillStyle(0xe0f2fe, 0.9);
+      gfx.fillRoundedRect(cx - 6 * scale, cy - 8 * scale, 5 * scale, 5 * scale, 1 * scale);
+      gfx.fillRoundedRect(cx + 1 * scale, cy - 7 * scale, 5 * scale, 5 * scale, 1 * scale);
+      // Milo Dinosaur cocoa powder heap on top
+      gfx.fillStyle(0x271914, 1);
+      gfx.fillEllipse(cx, cy - 10 * scale, 14 * scale, 4 * scale);
+      // Red angled straw
+      gfx.lineStyle(2.2 * scale, 0xef4444, 1);
       gfx.lineBetween(cx + 3 * scale, cy - 5 * scale, cx + 8 * scale, cy - 16 * scale);
     } else if (recipeId === 'roti_canai') {
-      gfx.fillStyle(0xcbd5e1, 1);
-      gfx.fillEllipse(cx, cy + 2 * scale, 28 * scale, 18 * scale);
-      gfx.lineStyle(1.5 * scale, 0x64748b, 1);
-      gfx.strokeEllipse(cx, cy + 2 * scale, 28 * scale, 18 * scale);
-      gfx.fillStyle(0xfbbf24, 1);
-      gfx.fillEllipse(cx - 2 * scale, cy + 2 * scale, 18 * scale, 12 * scale);
-      gfx.lineStyle(1 * scale, 0xb45309, 0.9);
-      gfx.strokeEllipse(cx - 2 * scale, cy + 2 * scale, 12 * scale, 7 * scale);
-      gfx.fillStyle(0xdc2626, 1);
-      gfx.fillCircle(cx + 8 * scale, cy - 1 * scale, 4 * scale);
-    } else if (recipeId === 'maggi_goreng') {
-      // Plate with curly spiced noodles, fried egg & lime
+      // Plate shadow + stainless steel plate rim
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillEllipse(cx, cy + 4 * scale, 30 * scale, 19 * scale);
       gfx.fillStyle(0xe2e8f0, 1);
-      gfx.fillEllipse(cx, cy + 2 * scale, 28 * scale, 18 * scale);
+      gfx.fillEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      gfx.lineStyle(1.5 * scale, 0x64748b, 1);
+      gfx.strokeEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      // Crispy golden flaky flatbread with char rings
+      gfx.fillStyle(0xfbbf24, 1);
+      gfx.fillEllipse(cx - 3 * scale, cy + 2 * scale, 19 * scale, 12.5 * scale);
+      gfx.fillStyle(0xfef08a, 0.7);
+      gfx.fillEllipse(cx - 4 * scale, cy + 1 * scale, 12 * scale, 7 * scale);
+      gfx.lineStyle(1.1 * scale, 0xb45309, 0.9);
+      gfx.strokeEllipse(cx - 3 * scale, cy + 2 * scale, 14 * scale, 8 * scale);
+      // Dual stainless steel curry bowls: yellow Dhal + red Sambal
+      gfx.fillStyle(0xf59e0b, 1);
+      gfx.fillCircle(cx + 7 * scale, cy + 4 * scale, 3.8 * scale);
+      gfx.fillStyle(0xdc2626, 1);
+      gfx.fillCircle(cx + 8 * scale, cy - 2 * scale, 3.8 * scale);
+    } else if (recipeId === 'maggi_goreng') {
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillEllipse(cx, cy + 4 * scale, 30 * scale, 19 * scale);
+      gfx.fillStyle(0xf8fafc, 1);
+      gfx.fillEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      gfx.lineStyle(1.2 * scale, 0x94a3b8, 1);
+      gfx.strokeEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      // Spiced dark-soy wok noodles
       gfx.fillStyle(0xb45309, 1);
-      gfx.fillEllipse(cx, cy + 2 * scale, 20 * scale, 13 * scale);
-      // Sunny side egg on top
+      gfx.fillEllipse(cx, cy + 2 * scale, 21 * scale, 13 * scale);
+      gfx.lineStyle(1.2 * scale, 0xf59e0b, 0.85);
+      gfx.strokeEllipse(cx - 2 * scale, cy + 2 * scale, 13 * scale, 7 * scale);
+      // Sunny-side-up fried egg (Telur Mata)
       gfx.fillStyle(0xffffff, 1);
-      gfx.fillCircle(cx - 2 * scale, cy + 1 * scale, 5 * scale);
+      gfx.fillCircle(cx - 2 * scale, cy + 1 * scale, 5.5 * scale);
       gfx.fillStyle(0xf97316, 1);
-      gfx.fillCircle(cx - 2 * scale, cy + 1 * scale, 2.5 * scale);
-      // Green calamansi lime
-      gfx.fillStyle(0x22c55e, 1);
-      gfx.fillCircle(cx + 7 * scale, cy + 3 * scale, 3 * scale);
+      gfx.fillCircle(cx - 2 * scale, cy + 1 * scale, 2.8 * scale);
+      // Calamansi lime (Limau Kasturi) + bok choy leaf
+      gfx.fillStyle(0x16a34a, 1);
+      gfx.fillCircle(cx + 7.5 * scale, cy + 3 * scale, 3.2 * scale);
     } else if (recipeId === 'roti_telur') {
-      // Rectangular folded egg roti with yellow egg center & curry
-      gfx.fillStyle(0xcbd5e1, 1);
-      gfx.fillEllipse(cx, cy + 2 * scale, 28 * scale, 18 * scale);
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillEllipse(cx, cy + 4 * scale, 30 * scale, 19 * scale);
+      gfx.fillStyle(0xe2e8f0, 1);
+      gfx.fillEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      gfx.lineStyle(1.5 * scale, 0x64748b, 1);
+      gfx.strokeEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      // Folded square egg parcel
       gfx.fillStyle(0xfde047, 1);
-      gfx.fillRoundedRect(cx - 11 * scale, cy - 4 * scale, 18 * scale, 12 * scale, 2 * scale);
-      gfx.lineStyle(1.5 * scale, 0xd97706, 1);
-      gfx.strokeRoundedRect(cx - 11 * scale, cy - 4 * scale, 18 * scale, 12 * scale, 2 * scale);
+      gfx.fillRoundedRect(cx - 12 * scale, cy - 4 * scale, 19 * scale, 12 * scale, 2.5 * scale);
+      gfx.fillStyle(0xf97316, 0.65);
+      gfx.fillRoundedRect(cx - 8 * scale, cy - 1.5 * scale, 11 * scale, 7 * scale, 1.5 * scale);
+      gfx.lineStyle(1.4 * scale, 0xb45309, 1);
+      gfx.strokeRoundedRect(cx - 12 * scale, cy - 4 * scale, 19 * scale, 12 * scale, 2.5 * scale);
+      // Curry ramekin
       gfx.fillStyle(0xdc2626, 1);
       gfx.fillCircle(cx + 9 * scale, cy - 1 * scale, 4 * scale);
     } else if (recipeId === 'nasi_kandar') {
-      // Steamed rice mound with flood of mixed curries (Kuah Campur) & fried chicken
-      gfx.fillStyle(0xe2e8f0, 1);
-      gfx.fillEllipse(cx, cy + 2 * scale, 28 * scale, 18 * scale);
+      gfx.fillStyle(0x000000, 0.25);
+      gfx.fillEllipse(cx, cy + 4 * scale, 30 * scale, 19 * scale);
+      gfx.fillStyle(0xf8fafc, 1);
+      gfx.fillEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      gfx.lineStyle(1.2 * scale, 0x94a3b8, 1);
+      gfx.strokeEllipse(cx, cy + 2 * scale, 29 * scale, 18 * scale);
+      // Fluffy white rice mound
       gfx.fillStyle(0xffffff, 1);
-      gfx.fillCircle(cx - 3 * scale, cy + 1 * scale, 7 * scale);
-      gfx.fillStyle(0x991b1b, 1);
-      gfx.fillCircle(cx + 4 * scale, cy + 2 * scale, 6 * scale);
+      gfx.fillCircle(cx - 3 * scale, cy + 1 * scale, 7.5 * scale);
+      // Kuah Campur (flooded mixed dark/red curries)
+      gfx.fillStyle(0x991b1b, 0.95);
+      gfx.fillCircle(cx + 3 * scale, cy + 3 * scale, 6 * scale);
+      // Crispy Ayam Goreng Berempah piece + bendi (okra)
       gfx.fillStyle(0xd97706, 1);
-      gfx.fillCircle(cx, cy - 2 * scale, 4 * scale);
+      gfx.fillEllipse(cx + 2 * scale, cy - 2 * scale, 11 * scale, 6.5 * scale);
+      gfx.lineStyle(2 * scale, 0x16a34a, 1);
+      gfx.lineBetween(cx - 9 * scale, cy + 5 * scale, cx - 2 * scale, cy + 7 * scale);
     } else {
       gfx.fillStyle(0xe2e8f0, 1);
       gfx.fillCircle(cx, cy, 12 * scale);
@@ -308,20 +511,19 @@ export class Customer extends BaseEntity {
   }
 
   private setupInteractivity(): void {
-    this.setSize(100, 160);
+    this.setSize(96, 160);
     this.setInteractive(
-      new Phaser.Geom.Rectangle(-50, -125, 100, 165),
+      new Phaser.Geom.Rectangle(-48, -125, 96, 165),
       Phaser.Geom.Rectangle.Contains
     );
   }
 
   private walkToCounter(): void {
-    // Bobbing walk animation toward target stool/counter position
     this.scene.tweens.add({
       targets: this,
       x: this.targetX,
       y: this.targetY,
-      duration: 650,
+      duration: 600,
       ease: 'Power2.easeOut',
       onComplete: () => {
         if (this.customerState !== 'walking_in') return;
@@ -379,15 +581,15 @@ export class Customer extends BaseEntity {
 
   private updatePatienceBarGraphic(): void {
     const ratio = this.getPatienceRatio();
-    const maxW = 60;
+    const maxW = 58;
     const fillW = Math.max(0, maxW * ratio);
 
-    let color = 0x22c55e; // Green (> 60%)
+    let color = 0x22c55e;
     if (ratio <= 0.3) {
-      color = 0xef4444; // Red (<= 30%)
+      color = 0xef4444;
       this.drawFace('angry');
     } else if (ratio <= 0.6) {
-      color = 0xfacc15; // Yellow (30% - 60%)
+      color = 0xfacc15;
       this.drawFace('impatient');
     } else {
       this.drawFace('neutral');
@@ -396,7 +598,7 @@ export class Customer extends BaseEntity {
     this.patienceBarFill.clear();
     if (fillW > 0) {
       this.patienceBarFill.fillStyle(color, 1);
-      this.patienceBarFill.fillRoundedRect(-30, -54, fillW, 5, 2.5);
+      this.patienceBarFill.fillRoundedRect(-29, -52, fillW, 5, 2.5);
     }
   }
 
@@ -408,12 +610,12 @@ export class Customer extends BaseEntity {
     this.bubbleContainer.setVisible(false);
     this.drawFace('happy');
 
-    const exitX = this.seatIndex === 0 ? -70 : 460;
+    const exitX = this.seatIndex <= 1 ? -70 : 460;
     this.scene.tweens.add({
       targets: this,
       x: exitX,
       alpha: 0,
-      duration: 550,
+      duration: 500,
       ease: 'Power2.easeIn',
       onComplete: () => {
         this.callbacks.onExited(this);
@@ -428,7 +630,6 @@ export class Customer extends BaseEntity {
     this.patienceBarFill.setVisible(false);
     this.drawFace('angry');
 
-    // Replace speech bubble content with angry storm symbol
     this.bubbleItemsContainer.removeAll(true);
     this.bubbleBg.clear();
     this.bubbleBg.fillStyle(0xfee2e2, 0.98);
@@ -448,13 +649,13 @@ export class Customer extends BaseEntity {
 
     this.callbacks.onTimeout(this);
 
-    const exitX = this.seatIndex === 0 ? -70 : 460;
+    const exitX = this.seatIndex <= 1 ? -70 : 460;
     this.scene.tweens.add({
       targets: this,
       x: exitX,
       alpha: 0,
       delay: 350,
-      duration: 550,
+      duration: 500,
       ease: 'Power2.easeIn',
       onComplete: () => {
         this.callbacks.onExited(this);
