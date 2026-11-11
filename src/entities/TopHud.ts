@@ -10,10 +10,15 @@ export class TopHud extends BaseEntity {
   private tierText!: Phaser.GameObjects.Text;
   private cashText!: Phaser.GameObjects.Text;
   private comboBadge!: Phaser.GameObjects.Text;
+  private shopBtn!: Phaser.GameObjects.Rectangle;
+  private upgradeReadyBadge!: Phaser.GameObjects.Text;
   private dayText!: Phaser.GameObjects.Text;
   private phaseBadgeBg!: Phaser.GameObjects.Graphics;
   private phaseText!: Phaser.GameObjects.Text;
   private dayProgressBarFill!: Phaser.GameObjects.Graphics;
+  private starsText!: Phaser.GameObjects.Text;
+  private lastStarsCount = 0;
+  private lastTrackedDay = 1;
 
   private repLabel!: Phaser.GameObjects.Text;
   private repValueText!: Phaser.GameObjects.Text;
@@ -25,9 +30,9 @@ export class TopHud extends BaseEntity {
   private readonly HUD_HEIGHT = 100;
 
   private readonly REP_BAR_X = 112;
-  private readonly REP_BAR_Y = 82;
+  private readonly REP_BAR_Y = 85;
   private readonly REP_BAR_WIDTH = 200;
-  private readonly REP_BAR_HEIGHT = 11;
+  private readonly REP_BAR_HEIGHT = 10;
 
   private readonly onOpenUpgradeModal?: () => void;
   private readonly onPause?: () => void;
@@ -127,11 +132,11 @@ export class TopHud extends BaseEntity {
     this.add(this.cashText);
 
     // Shop / Upgrade Kedai Button
-    const shopBtn = this.scene.add
+    this.shopBtn = this.scene.add
       .rectangle(192, this.HUD_Y + 45, 84, 26, 0xd97706, 1)
       .setStrokeStyle(1.5, 0xfef08a, 0.95)
       .setInteractive({ useHandCursor: true });
-    this.add(shopBtn);
+    this.add(this.shopBtn);
 
     const shopBtnLabel = this.scene.add
       .text(192, this.HUD_Y + 45, '🏪 UPGRADE', {
@@ -143,9 +148,33 @@ export class TopHud extends BaseEntity {
       .setOrigin(0.5);
     this.add(shopBtnLabel);
 
-    shopBtn.on('pointerdown', () => {
+    // Pulsing "UP!" notification badge when an unowned upgrade is affordable
+    this.upgradeReadyBadge = this.scene.add
+      .text(227, this.HUD_Y + 31, '● UP!', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: '7.5px',
+        fontStyle: 'bold',
+        color: '#fef08a',
+        backgroundColor: '#15803d',
+        padding: { x: 4, y: 1.5 },
+      })
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.add(this.upgradeReadyBadge);
+
+    this.scene.tweens.add({
+      targets: this.upgradeReadyBadge,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      duration: 520,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    this.shopBtn.on('pointerdown', () => {
       this.scene.tweens.add({
-        targets: [shopBtn, shopBtnLabel],
+        targets: [this.shopBtn, shopBtnLabel],
         scaleX: 0.94,
         scaleY: 0.94,
         duration: 70,
@@ -191,11 +220,11 @@ export class TopHud extends BaseEntity {
     this.dayText = this.scene.add
       .text(
         this.HUD_X + this.HUD_WIDTH - 14,
-        this.HUD_Y + 38,
+        this.HUD_Y + 32,
         'DAY 1 (90s)',
         {
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          fontSize: '12.5px',
+          fontSize: '12px',
           fontStyle: 'bold',
           color: '#fde68a',
         }
@@ -207,18 +236,34 @@ export class TopHud extends BaseEntity {
     dayBarTrack.fillStyle(0x140d0b, 1);
     dayBarTrack.fillRoundedRect(
       this.HUD_X + this.HUD_WIDTH - 94,
-      this.HUD_Y + 57,
+      this.HUD_Y + 49,
       80,
-      5,
-      2.5
+      4.5,
+      2.25
     );
     this.add(dayBarTrack);
 
     this.dayProgressBarFill = this.scene.add.graphics();
     this.add(this.dayProgressBarFill);
 
+    // Live 3-Star Daily Progress indicator directly beneath the Day timer bar
+    this.starsText = this.scene.add
+      .text(
+        this.HUD_X + this.HUD_WIDTH - 14,
+        this.HUD_Y + 57,
+        '☆☆☆ 0/3',
+        {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '9.5px',
+          fontStyle: 'bold',
+          color: '#fde047',
+        }
+      )
+      .setOrigin(1, 0);
+    this.add(this.starsText);
+
     this.repLabel = this.scene.add
-      .text(this.HUD_X + 14, this.REP_BAR_Y + 6, 'REPUTATION', {
+      .text(this.HUD_X + 14, this.REP_BAR_Y + 5, 'REPUTATION', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: '10.5px',
         fontStyle: 'bold',
@@ -234,7 +279,7 @@ export class TopHud extends BaseEntity {
       this.REP_BAR_Y,
       this.REP_BAR_WIDTH,
       this.REP_BAR_HEIGHT,
-      6
+      5
     );
     repTrack.lineStyle(1, 0x57534e, 0.8);
     repTrack.strokeRoundedRect(
@@ -242,7 +287,7 @@ export class TopHud extends BaseEntity {
       this.REP_BAR_Y,
       this.REP_BAR_WIDTH,
       this.REP_BAR_HEIGHT,
-      6
+      5
     );
     this.add(repTrack);
 
@@ -252,11 +297,11 @@ export class TopHud extends BaseEntity {
     this.repValueText = this.scene.add
       .text(
         this.HUD_X + this.HUD_WIDTH - 14,
-        this.REP_BAR_Y + 6,
+        this.REP_BAR_Y + 5,
         '70/100',
         {
           fontFamily: 'monospace',
-          fontSize: '12px',
+          fontSize: '11.5px',
           fontStyle: 'bold',
           color: '#fef3c7',
         }
@@ -270,18 +315,24 @@ export class TopHud extends BaseEntity {
       this.store.on('cashChanged', (cash, delta) => {
         this.updateCashDisplay(cash);
         this.spawnFloatingCashFeedback(delta);
+        this.syncUpgradeBadge();
+        this.syncStarsDisplay();
       }),
       this.store.on('reputationChanged', (rep) => {
         this.updateReputationDisplay(rep);
+        this.syncStarsDisplay();
       }),
       this.store.on('dayChanged', () => {
         this.syncDayDisplay();
+        this.syncStarsDisplay();
       }),
       this.store.on('dayTick', () => {
         this.syncDayDisplay();
       }),
       this.store.on('tierChanged', (tier) => {
         this.tierText.setText(`Tier ${tier.level}: ${tier.name}`);
+        this.syncUpgradeBadge();
+        this.syncStarsDisplay();
       }),
       this.store.on('comboChanged', (streak) => {
         this.updateComboDisplay(streak);
@@ -295,7 +346,46 @@ export class TopHud extends BaseEntity {
     this.updateCashDisplay(state.cash);
     this.updateReputationDisplay(state.reputation);
     this.updateComboDisplay(state.comboStreak);
+    this.syncUpgradeBadge();
     this.syncDayDisplay();
+    this.syncStarsDisplay();
+  }
+
+  private syncUpgradeBadge(): void {
+    const ready = this.store.hasAffordableUpgrade();
+    this.upgradeReadyBadge.setVisible(ready);
+    this.shopBtn.setStrokeStyle(
+      ready ? 2 : 1.5,
+      ready ? 0x4ade80 : 0xfef08a,
+      ready ? 1 : 0.95
+    );
+  }
+
+  private syncStarsDisplay(): void {
+    const state = this.store.getState();
+    const evalStars = this.store.evaluateCurrentShiftStars();
+    const starsStr = evalStars.targets.map((ok) => (ok ? '⭐' : '☆')).join('');
+    this.starsText
+      .setText(`${starsStr} ${evalStars.stars}/3`)
+      .setColor(evalStars.stars > 0 ? '#fde047' : '#a8a29e');
+
+    if (state.day !== this.lastTrackedDay) {
+      this.lastTrackedDay = state.day;
+      this.lastStarsCount = evalStars.stars;
+      return;
+    }
+
+    if (evalStars.stars > this.lastStarsCount) {
+      this.scene.tweens.add({
+        targets: this.starsText,
+        scaleX: 1.25,
+        scaleY: 1.25,
+        duration: 140,
+        yoyo: true,
+        ease: 'Back.easeOut',
+      });
+    }
+    this.lastStarsCount = evalStars.stars;
   }
 
   private updateComboDisplay(streak: number): void {
@@ -307,7 +397,9 @@ export class TopHud extends BaseEntity {
   }
 
   private updateCashDisplay(cash: number): void {
-    this.cashText.setText(`RM ${cash.toFixed(2)}`);
+    this.cashText
+      .setFontSize(cash >= 1000 ? 17 : 20)
+      .setText(`RM ${cash.toFixed(2)}`);
   }
 
   private spawnFloatingCashFeedback(delta: number): void {
@@ -407,10 +499,10 @@ export class TopHud extends BaseEntity {
     );
     this.dayProgressBarFill.fillRoundedRect(
       this.HUD_X + this.HUD_WIDTH - 94,
-      this.HUD_Y + 57,
+      this.HUD_Y + 49,
       Math.max(2, 80 * progress),
-      5,
-      2.5
+      4.5,
+      2.25
     );
   }
 

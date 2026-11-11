@@ -52,6 +52,8 @@ export class PrepStationDock extends BaseEntity {
 
   // --- 1. Drinks Station (Teh Tarik + Milo Ais + Ane Helper) ---
   private selectedDrinkRecipe: RecipeId = 'teh_tarik';
+  private demandCounts: Partial<Record<RecipeId, number>> = {};
+  private demandKey = '';
   private tehStage: TehTarikStage = 'idle';
   private tehFillElapsedMs = 0;
   private readonly TEH_FILL_DURATION_MS = 1500;
@@ -242,8 +244,56 @@ export class PrepStationDock extends BaseEntity {
   }
 
   /**
+   * Updates live order demand counts (e.g. { teh_tarik: 1, maggi_goreng: 2 })
+   * and refreshes the recipe selector pills when demand changes.
+   */
+  public setDemandCounts(counts: Partial<Record<RecipeId, number>>): void {
+    const key = Object.entries(counts)
+      .filter(([, c]) => (c ?? 0) > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, c]) => `${k}:${c}`)
+      .join('|');
+    if (key === this.demandKey) return;
+    this.demandKey = key;
+    this.demandCounts = { ...counts };
+    this.rebuildRecipePills();
+  }
+
+  /**
+   * Auto-selects the first needed drink and/or food recipe from a customer's order
+   * and pulses the recipe selector pills for instant visual confirmation.
+   */
+  public selectRecipesForOrder(recipes: RecipeId[]): RecipeId[] {
+    const unlocked = this.store.getState().unlockedRecipes;
+    const selected: RecipeId[] = [];
+    let drinkChanged = false;
+    let foodChanged = false;
+
+    for (const id of recipes) {
+      if (!unlocked.includes(id)) continue;
+      const def = getRecipeDef(id);
+      if (def.category === 'drink' && !drinkChanged) {
+        this.selectedDrinkRecipe = id;
+        drinkChanged = true;
+        selected.push(id);
+      } else if (def.category === 'food' && !foodChanged) {
+        this.selectedFoodRecipe = id;
+        foodChanged = true;
+        selected.push(id);
+      }
+    }
+
+    if (selected.length > 0) {
+      this.rebuildRecipePills();
+      if (drinkChanged) this.syncTehVisuals();
+      if (foodChanged) this.syncRotiVisuals();
+    }
+    return selected;
+  }
+
+  /**
    * Builds thumb-friendly 1-tap Recipe Pills in a dedicated 40px zone (y = 480..518)
-   * with zero overlap against the Kettle or Dough cards below!
+   * with live order demand badges (×1, ×2) and zero overlap against Kettle or Dough cards!
    */
   private rebuildRecipePills(): void {
     const unlocked = this.store.getState().unlockedRecipes;
@@ -256,27 +306,25 @@ export class PrepStationDock extends BaseEntity {
     drinks.forEach((id, idx) => {
       const def = getRecipeDef(id);
       const isSelected = this.selectedDrinkRecipe === id;
+      const demand = this.demandCounts[id] ?? 0;
       const px = drinks.length === 1 ? 104 : 104 + (idx === 0 ? -40 : 40);
       const py = this.DOCK_Y + 42; // 496
 
+      const fillColor = isSelected ? 0xd97706 : demand > 0 ? 0x112a22 : 0x0f172a;
+      const strokeColor = isSelected ? 0xfef08a : demand > 0 ? 0x22c55e : 0x475569;
+
       const btn = this.scene.add
-        .rectangle(
-          px,
-          py,
-          drinkPillW,
-          24,
-          isSelected ? 0xd97706 : 0x0f172a,
-          1
-        )
-        .setStrokeStyle(1.5, isSelected ? 0xfef08a : 0x475569, 1)
+        .rectangle(px, py, drinkPillW, 24, fillColor, 1)
+        .setStrokeStyle(1.5, strokeColor, 1)
         .setInteractive({ useHandCursor: true });
 
+      const textShiftX = demand > 0 ? (drinkPillW > 100 ? -10 : -8) : 0;
       const txt = this.scene.add
-        .text(px, py, def.shortName, {
+        .text(px + textShiftX, py, def.shortName, {
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          fontSize: '10px',
+          fontSize: demand > 0 && drinkPillW < 100 ? '9px' : '10px',
           fontStyle: 'bold',
-          color: isSelected ? '#ffffff' : '#94a3b8',
+          color: isSelected ? '#ffffff' : demand > 0 ? '#ecfdf5' : '#94a3b8',
         })
         .setOrigin(0.5);
 
@@ -287,6 +335,21 @@ export class PrepStationDock extends BaseEntity {
       });
 
       this.drinkPillsContainer.add([btn, txt]);
+
+      if (demand > 0) {
+        const badgeX = px + drinkPillW / 2 - (drinkPillW > 100 ? 18 : 11);
+        const badge = this.scene.add
+          .text(badgeX, py, `×${demand}`, {
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: drinkPillW > 100 ? '9px' : '8px',
+            fontStyle: 'bold',
+            color: '#fef08a',
+            backgroundColor: '#15803d',
+            padding: { x: drinkPillW > 100 ? 4 : 2.5, y: 1 },
+          })
+          .setOrigin(0.5);
+        this.drinkPillsContainer.add(badge);
+      }
     });
 
     // 2. Food Pills (right column center = 286, y = 488..507)
@@ -296,6 +359,7 @@ export class PrepStationDock extends BaseEntity {
     foods.forEach((id, idx) => {
       const def = getRecipeDef(id);
       const isSelected = this.selectedFoodRecipe === id;
+      const demand = this.demandCounts[id] ?? 0;
 
       let px = 286;
       let py = this.DOCK_Y + 42; // 496
@@ -314,17 +378,30 @@ export class PrepStationDock extends BaseEntity {
         py = this.DOCK_Y + 34 + row * 19; // Row 0 = 488, Row 1 = 507 (bottom = 516, well above y=525!)
       }
 
+      const fillColor = isSelected ? 0xd97706 : demand > 0 ? 0x112a22 : 0x0f172a;
+      const strokeColor = isSelected ? 0xfef08a : demand > 0 ? 0x22c55e : 0x475569;
+
       const btn = this.scene.add
-        .rectangle(px, py, pillW, pillH, isSelected ? 0xd97706 : 0x0f172a, 1)
-        .setStrokeStyle(1.4, isSelected ? 0xfef08a : 0x475569, 1)
+        .rectangle(px, py, pillW, pillH, fillColor, 1)
+        .setStrokeStyle(1.4, strokeColor, 1)
         .setInteractive({ useHandCursor: true });
 
+      const textShiftX = demand > 0 ? (pillW > 100 ? -10 : -8.5) : 0;
+      const fontSize =
+        foods.length > 2
+          ? demand > 0
+            ? '8px'
+            : '9px'
+          : demand > 0 && pillW < 100
+          ? '9px'
+          : '10px';
+
       const txt = this.scene.add
-        .text(px, py, def.shortName, {
+        .text(px + textShiftX, py, def.shortName, {
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          fontSize: foods.length > 2 ? '9px' : '10px',
+          fontSize,
           fontStyle: 'bold',
-          color: isSelected ? '#ffffff' : '#94a3b8',
+          color: isSelected ? '#ffffff' : demand > 0 ? '#ecfdf5' : '#94a3b8',
         })
         .setOrigin(0.5);
 
@@ -335,6 +412,21 @@ export class PrepStationDock extends BaseEntity {
       });
 
       this.foodPillsContainer.add([btn, txt]);
+
+      if (demand > 0) {
+        const badgeX = px + pillW / 2 - (pillW > 100 ? 18 : 10.5);
+        const badge = this.scene.add
+          .text(badgeX, py, `×${demand}`, {
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: pillW > 100 ? '9px' : '7.5px',
+            fontStyle: 'bold',
+            color: '#fef08a',
+            backgroundColor: '#15803d',
+            padding: { x: pillW > 100 ? 4 : 2, y: 0.5 },
+          })
+          .setOrigin(0.5);
+        this.foodPillsContainer.add(badge);
+      }
     });
   }
 

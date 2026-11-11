@@ -15,6 +15,7 @@ export interface CustomerEvents {
   ) => void;
   onTimeout: (customer: Customer) => void;
   onExited: (customer: Customer) => void;
+  onCustomerTap?: (customer: Customer) => void;
 }
 
 const SHIRT_COLORS = [0x2563eb, 0x059669, 0x7c3aed, 0xd97706, 0x0891b2, 0xbe185d];
@@ -585,6 +586,23 @@ export class Customer extends BaseEntity {
       new Phaser.Geom.Rectangle(-48, -125, 96, 165),
       Phaser.Geom.Rectangle.Contains
     );
+    if (this.input) {
+      this.input.cursor = 'pointer';
+    }
+    this.on('pointerdown', () => {
+      if (this.customerState !== 'waiting' && this.customerState !== 'walking_in') return;
+      if (this.bubbleContainer.visible) {
+        this.scene.tweens.add({
+          targets: this.bubbleContainer,
+          scaleX: 1.08,
+          scaleY: 1.08,
+          duration: 90,
+          yoyo: true,
+          ease: 'Sine.easeOut',
+        });
+      }
+      this.callbacks.onCustomerTap?.(this);
+    });
   }
 
   private walkToCounter(): void {

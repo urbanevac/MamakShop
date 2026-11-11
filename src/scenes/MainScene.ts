@@ -744,6 +744,54 @@ export class MainScene extends Phaser.Scene {
       }
       cust.setMatchColors(map);
     }
+
+    // 3. Compute net unplated customer demand for Prep Dock recipe pills
+    const demandMap: Partial<Record<RecipeId, number>> = {};
+    for (const cust of activeCustomers) {
+      for (const req of cust.remainingItems) {
+        demandMap[req] = (demandMap[req] ?? 0) + 1;
+      }
+    }
+    for (const item of this.servingTray) {
+      if (!item) continue;
+      const cur = demandMap[item.recipeId] ?? 0;
+      if (cur > 0) {
+        demandMap[item.recipeId] = cur - 1;
+      }
+    }
+    this.prepDock?.setDemandCounts(demandMap);
+  }
+
+  private handleCustomerTapped(cust: Customer): void {
+    if (cust.remainingItems.length === 0) return;
+
+    // 1. If a plated tray item matches this waiting customer, serve it on tap!
+    if (cust.customerState === 'waiting') {
+      const matchingTrayItem = this.servingTray.find(
+        (item): item is FoodTrayItem =>
+          item !== null && cust.canAcceptRecipe(item.recipeId)
+      );
+      if (matchingTrayItem) {
+        if (this.servingTray[matchingTrayItem.trayIndex] === matchingTrayItem) {
+          this.servingTray[matchingTrayItem.trayIndex] = null;
+        }
+        this.lastServedPadu = matchingTrayItem.isPadu;
+        matchingTrayItem.destroy();
+        this.updateTrayHeaderCount();
+        cust.serveItem(matchingTrayItem.recipeId);
+        this.syncMatchHints();
+        this.emitTutorialEvent('served');
+        return;
+      }
+    }
+
+    // 2. Otherwise auto-select the customer's needed recipe(s) in the Prep Dock
+    const selected = this.prepDock.selectRecipesForOrder(cust.remainingItems);
+    if (selected.length > 0) {
+      haptic(HAPTIC.tap, 'tap');
+      const names = selected.map((id) => getRecipeDef(id).shortName).join(' + ');
+      this.showPopup(cust.x, cust.y - 78, `🎯 Prep set: ${names}`, '#fde047');
+    }
   }
 
   private findTapServeTarget(recipeId: RecipeId): Customer | null {
@@ -1085,6 +1133,7 @@ export class MainScene extends Phaser.Scene {
           cust.destroy();
           this.syncMatchHints();
         },
+        onCustomerTap: (cust) => this.handleCustomerTapped(cust),
       },
       archetype,
       patienceModifier
@@ -1133,6 +1182,9 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(55);
+
+    const halfW = popup.width / 2;
+    popup.x = Phaser.Math.Clamp(x, halfW + 10, GAME_WIDTH - halfW - 10);
 
     this.tweens.add({
       targets: popup,

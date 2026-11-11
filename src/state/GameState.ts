@@ -473,6 +473,21 @@ export class GameStateStore {
 
   // --- Kedai & Equipment Upgrades ---
 
+  /** Returns true if the player has enough cash to buy any unowned upgrade or next stall tier. */
+  public hasAffordableUpgrade(): boolean {
+    const { cash, hasTermosAir, hasTurboKuali, tier } = this.state;
+    if (!hasTermosAir && cash >= 100) return true;
+    if (!hasTurboKuali && cash >= 120) return true;
+    if (tier.level < 2 && cash >= 300) return true;
+    if (tier.level < 3 && cash >= 1200) return true;
+    return false;
+  }
+
+  /** Evaluates the 3-Star Daily Shift Targets against the live shift stats. */
+  public evaluateCurrentShiftStars(): ShiftStarEvaluation {
+    return this.evaluateShiftStars(this.state.shiftStats, this.state.tier.level);
+  }
+
   public upgradeTermosAir(): boolean {
     if (this.state.hasTermosAir) return false;
     if (!this.deductCash(100)) return false;
