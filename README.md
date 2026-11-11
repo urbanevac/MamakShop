@@ -1,5 +1,7 @@
 # 🍵 MamakShop
 
+> **🎮 Play Live in Your Browser (Desktop & Mobile):** [**https://urbanevac.github.io/MamakShop/**](https://urbanevac.github.io/MamakShop/)
+
 **MamakShop** is a mobile-first Malaysian Mamak stall time-management web game built with **Vite**, **TypeScript**, and **Phaser 3**. Start from a humble roadside stall (*Gerai Tepi Jalan*) with two red plastic stools, pull frothy *Teh Tarik*, flip crispy *Roti Canai* before it burns, and grow your business into a bustling 24-hour *Corner Lot Mamak*!
 
 ---
